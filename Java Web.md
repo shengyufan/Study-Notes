@@ -990,9 +990,9 @@ spring.servlet.multipart.max-request-size=100MB
 ```properties
 #自定义的阿里云OSS配置信息
 aliyun.oss.endpoint=https://oss-cn-hangzhou.aliyuncs.com
-aliyun.oss.accessKeyId=LTAI4GCH1vX6DKqJWxd6nEuW
-aliyun.oss.accessKeySecret=yBshYweHOpqDuhCArrVHwIiBKpyqSL
-aliyun.oss.bucketName=web-tlias
+aliyun.oss.accessKeyId=[Key ID]
+aliyun.oss.accessKeySecret=[Key Secret]
+aliyun.oss.bucketName=[bucket]
 ```
 
 在 Java 文件中采用 `@Value` 注解（用于外部配置的属性注入）
@@ -1017,9 +1017,9 @@ private String bucketName;
 aliyun:
   oss:
     endpoint: https://oss-cn-hangzhou.aliyuncs.com
-    accessKeyId: LTAI4GCH1vX6DKqJWxd6nEuW
-    accessKeySecret: yBshYweHOpqDuhCArrVHwIiBKpyqSL
-    bucketName: web-397
+    accessKeyId: [Key ID]
+    accessKeySecret: [Key Secret]
+    bucketName: [bucket]
 ```
 
 yml 格式的数据具有多个特点
@@ -1057,9 +1057,9 @@ public class AliOSSProperties {
     //区域
     private String endpoint;
     //身份ID
-    private String accessKeyId ;
+    private String accessKeyId;
     //身份密钥
-    private String accessKeySecret ;
+    private String accessKeySecret;
     //存储空间
     private String bucketName;
 }
