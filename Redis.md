@@ -1321,3 +1321,69 @@ eval "if redis.call('get',KEYS[1])==ARGV[1] then return redis.call('del',KEYS[1]
 
 `setnx` 命令只能作为基本的分布式锁，无法解决可重入问题，因此需要使用 `hset` 作为 Redis 分布式锁的实现
 
+#### 加锁
+
+1.   使用 `exists` 判断 Redis 分布式锁是否存在
+2.   如果不存在，使用 `hset` 新建当前线程的锁
+3.   如果存在，使用 `hexists` 判断锁是否属于当前线程
+4.   如果属于当前线程，则自增 1 次表示重入
+
+```lua
+-- v1
+if redis.call('exists', 'key') == 0 then
+  redis.call('hset', 'key', 'uuid:threadid', 1)
+  redis.call('expire', 'key', 30)
+  return 1
+elseif redis.call('hexists', 'key', 'uuid:threadid') == 1 then
+  redis.call('hincrby', 'key', 'uuid:threadid', 1)
+  redis.call('expire', 'key', 30)
+  return 1
+else
+  return 0
+end
+
+-- v2: 合并相同代码
+if redis.call('exists', 'key') == 0 or redis.call('hexists', 'key', 'uuid:threadid') == 1 then
+  redis.call('hincrby', 'key', 'uuid:threadid', 1)
+  redis.call('expire', 'key', 30)
+  return 1
+else
+  return 0
+end
+
+-- v3: 动态编码
+if redis.call('exists', KEYS[1]) == 0 or redis.call('hexists', KEYS[1], ARGV[1]) == 1 then 
+  redis.call('hincrby', KEYS[1], ARGV[1], 1) 
+  redis.call('expire', KEYS[1], ARGV[2]) 
+  return 1 
+else
+  return 0
+end
+```
+
+#### 解锁
+
+1.   使用 `hexists` 判断当前线程是否有锁
+2.   如果锁存在，使用 `hincrby` 命令解锁（自增值设置为 -1）
+3.   如果锁值为 0，使用 `del` 删除锁
+
+```lua
+-- v1
+if redis.call('HEXISTS', lock, uuid:threadID) == 0 then
+ 	return nil
+elseif redis.call('HINCRBY', lock, uuid:threadID, -1) == 0 then
+ 	return redis.call('del', lock)
+else 
+ 	return 0
+end
+
+-- v2: 动态编码
+if redis.call('HEXISTS', KEYS[1], ARGV[1]) == 0 then
+ 	return nil
+elseif redis.call('HINCRBY', KEYS[1], ARGV[1],-1) == 0 then
+ 	return redis.call('del', KEYS[1])
+else
+ 	return 0
+end
+```
+
