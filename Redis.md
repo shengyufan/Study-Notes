@@ -1450,3 +1450,108 @@ Redis maxmemory 默认设置为0，表示不限制 Redis 内存使用（64 位�
 
 1.   避免存储 BigKey
 2.   配置 `lazyfree-lazy-eviction=yes` 开始惰性淘汰
+
+## Redis 深度解析
+
+Redis 是 key-value 存储系统，其中 key 一般是 String 类型的字符串对象，value 是 Redis 对象，即字符串对象或集合数据类型对象（list、hash、set 或 zset 对象）
+
+Redis 源码实现
+
+![redis-code](assets/redis-code.png)
+
+Redis 6 底层实现
+
+![redis-object](assets/redis-object.png)
+
+Redis 7 压缩列表（ziplist）被替换为紧凑列表（listpack），并且 Redis List 列表类型底层实现为快速列表（quicklist）
+
+RedisObject 源码各字段含义
+
+-   4 位的 type 表示具体的数据类型
+-   4 位的 encoding 表示该类型的物理编码方式，注意同一种数据类型可能有不同的编码方式
+-   lru 字段表示当内存超限时采用 LRU 算法清除内存中的对象
+-   refcount 表示对象的引用计数
+-   ptr 指针指向真正的底层数据结构的指针
+
+可设置 `enable-debug-command local` 开启 debug 模式，然后使用 `debug object key` 查看相关信息
+
+-   value at：内存地址
+-   refcount：引用次数
+-   encoding：物理编码类型
+-   serializedlength：序列化后的长度（注意这里的长度是序列化后的长度，保存为 RDB 文件时使用了该算法，不是真正存贮在内存的大小）,会对字串做一些可能的压缩以便底层优化
+-   lru：记录最近使用时间戳
+-   lru_seconds_idle：空闲时间
+
+### String 数据结构
+
+物理编码方式：
+
+1.   int：保存 long 类型的 64 位有符号整数
+2.   embstr：保存长度小于 44 字节的字符串
+3.   raw：保存长度大于 44 字节的字符串或修改后的 embstr 编码对象
+
+#### 简单动态字符串 SDS
+
+Redis 基于 C 语言实现，但 C 语言没有 Java 里面的 String 类型，而是依靠 char[] 实现字符串在 C 语言中的存储方式。因此想要获取 Redis 的长度，需要从头开始遍历，直到遇到 '\0' 为止
+
+Redis 没有直接使用 C 语言传统的字符串标识，而是自己构建了一种名为简单动态字符串 SDS（simple dynamic string）的抽象类型，并将 SDS 作为 Redis 的默认字符串。SDS 包含四个字段
+
+-   len：当前字符数组的长度。在 $O(1)$ 时间获取字符串长度
+-   alloc：当前字符数组总共分配的内存大小。用于预分配内存空间
+-   flags：当前字符数组的属性，标识 SDS 类型
+-   buf[]：字符串真正有效的数据
+
+|                    | C语言                                                        | SDS                                                          |
+| ------------------ | ------------------------------------------------------------ | ------------------------------------------------------------ |
+| **字符串长度处理** | 需要从头开始遍历，直到遇到 '\0' 为止，时间复杂度O(N)         | 记录当前字符串的长度，直接读取即可，时间复杂度 O(1)          |
+| **内存重新分配**   | 分配内存空间超过后，会导致数组下标越级或者内存分配溢出       | **空间预分配**<br />SDS 修改后，len 长度小于 1M，那么将会额外分配与 len 相同长度的未使用空间。如果修改后长度大于 1M，那么将分配1M的使用空间。<br />**惰性空间释放**<br />有空间分配对应的就有空间释放。SDS 缩短时并不会回收多余的内存空间，而是使用 free 字段将多出来的空间记录下来。如果后续有变更操作，直接使用 free 中记录的空间，减少了内存的分配。 |
+| **二进制安全**     | 二进制数据并不是规则的字符串格式，可能会包含一些特殊的字符，比如 '\0' 等。前面提到过，C中字符串遇到 '\0' 会结束，那 '\0' 之后的数据就读取不上了 | 根据 len 长度来判断字符串结束的，二进制安全的问题就解决了    |
+
+### Hash 数据结构
+
+物理编码格式：
+
+1.   hashtable
+2.   ziplist（Redis 6）/ listpack（Redis 7）
+
+Redis 6 中关于 hash 的配置
+
+-   **hash-max-ziplist-entries**：使用压缩列表保存时哈希集合中的最大元素个数
+-   **hash-max-ziplist-value**：使用压缩列表保存时哈希集合中单个元素的最大长度
+
+Hash 类型键的字段个数小于 hash-max-ziplist-entries 并且每个字段名和字段值的长度小于 hash-max-ziplist-value 时，Redis 使用 OBJ_ENCODING_ZIPLIST 来存储该键，前述条件任意一个不满足则会转换为 OBJ_ENCODING_HT 的编码方式
+
+#### 压缩列表 ziplist
+
+Ziplist 是一种紧凑编码格式，总体思想是**以多花时间来换取节约空间**，即以部分读写性能为代价，来换取极高的内存空间利用率。只用在字段个数少，字段值小的场景里面使用
+
+Ziplist 是一个经过特殊编码连续存储的**双向链表**，它存储上一个节点长度和当前节点长度而不是指向前一个链表节点 prev 和指向下一个链表节点的指针 next
+
+Ziplist 各字段
+
+-   zlbytes：记录整个压缩列表占用的内存字节数
+-   zltail：记录压缩列表表尾节点距离压缩列表的起始地址有多少字节
+-   zllen：记录压缩列表包含的节点数量
+-   zlentry：压缩列表中包含的各个节点。每个 zlentry 由前一个节点的长度、encoding 和 entry-data 三部分组成
+-   zlend：特殊值，标记压缩列表的尾端
+
+Redis 7 引入了紧凑列表 listpack
+
+-   **hash-max-listpack-entries**：使用压缩列表保存时哈希集合中的最大元素个数
+-   **hash-max-listpack-value**：使用压缩列表保存时哈希集合中单个元素的最大长度
+
+Hash 类型键的字段个数小于 hash-max-listpack-entries 并且每个字段名和字段值的长度小于 hash-max-listpack-value 时，Redis 使用 OBJ_ENCODING_LISTPACK 来存储该键，前述条件任意一个不满足则会转换为 OBJ_ENCODING_HT 的编码方式
+
+#### 紧凑列表 listpack
+
+压缩列表 ziplist 新增某个元素或修改某个元素时，如果空间不不够，压缩列表占用的内存空间就需要重新分配。而当新插入的元素较大时，可能会导致后续元素的 prevlen（前一个节点长度）占用空间都发生变化，从而引起**连锁更新**问题，导致每个元素的空间都要重新分配，造成访问压缩列表性能的下降。也就是说**压缩列表每个节点正因为需要保存前一个节点的长度字段，就会有连锁更新的隐患**
+
+紧凑列表 listpack 是 Redis 设计用来取代掉 ziplist 的数据结构，它通过每个节点记录自己的长度且放在节点的尾部，来彻底解决掉了 ziplist 存在的连锁更新的问题
+
+Listpack 各字段
+
+-   tot-bytes：记录整个 listpack 的空间大小
+-   size：记录 listpack 中的元素个数
+-   lpentry：紧凑列表中的具体元素。每个 lpentry 由 encoding（记录内容的类型和长度）、content（实际数据）和 len（总长度）三部分组成
+-   lpend：结束标志
+
