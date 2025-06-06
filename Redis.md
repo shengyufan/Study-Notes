@@ -1555,3 +1555,63 @@ Listpack 各字段
 -   lpentry：紧凑列表中的具体元素。每个 lpentry 由 encoding（记录内容的类型和长度）、content（实际数据）和 len（总长度）三部分组成
 -   lpend：结束标志
 
+### List 数据结构
+
+物理编码格式
+
+-   quicklist
+-   ziplist（Redis 6）/ listpack（Redis 7）
+
+使用快速列表 quicklist 来存储，quicklist 存储了一个双向链表，每个节点是一个 ziplist（Redis 6）或者 listpack（Redis 7）
+
+#### 快速列表 quicklist
+
+相关配置（以 Redis 6 为例，Redis 7 只是将 ziplist 转为 listpack）
+
+-   ziplist 压缩配置：`list-compress-depth 0`。表示一个 quicklist 两端不被压缩的节点个数。这里的节点是指 quicklist 双向链表的节点，而不是指ziplist里面的数据项个数
+
+    参数 list-compress-depth 的取值含义如下：
+
+    -   0: 是个特殊值，表示都不压缩。这是 Redis 的默认值
+    -   1: 表示 quicklist 两端各有 1 个节点不压缩，中间的节点压缩
+    -   2: 表示 quicklist 两端各有 2 个节点不压缩，中间的节点压缩
+    -   3: 表示 quicklist 两端各有 3 个节点不压缩，中间的节点压缩
+
+-   ziplist 中 entry 配置：`list-max-ziplist-size -2`。当取正值的时候，表示按照数据项个数来限定每个 quicklist 节点上的 ziplist 长度。比如，当这个参数配置成 5 的时候，表示每个 quicklist 节点的 ziplist 最多包含 5 个数据项。当取负值的时候，表示按照占用字节数来限定每个 quicklist 节点上的 ziplist 长度。这时，它只能取 -1 到 -5 这五个值，每个值含义如下：
+
+    -   -5: 每个 quicklist 节点上的 ziplist 大小不能超过 64 Kb（注：1kb => 1024 bytes）
+    -   -4: 每个 quicklist 节点上的 ziplist 大小不能超过 32 Kb
+    -   -3: 每个 quicklist 节点上的 ziplist 大小不能超过 16 Kb
+    -   -2: 每个 quicklist 节点上的 ziplist 大小不能超过 8 Kb（-2 是 Redis 给出的默认值）
+    -   -1: 每个 quicklist 节点上的 ziplist 大小不能超过 4 Kb
+
+### Set 数据结构
+
+物理编码格式
+
+-   intset
+-   hashtable
+
+Redis 用 intset 或 hashtable 存储 set。如果元素都是整数类型，就用 intset 存储。如果不是整数类型，就用 hashtable（数组+链表的存来储结构），其中 key 就是元素的值，value 为 null
+
+### Zset 数据结构
+
+物理编码格式
+
+-   skiplist
+-   ziplist（Redis 6）/ listpack（Redis 7）
+
+相关配置（以 Redis 6 为例）
+
+-   **zset_max_ziplist_entries**：最大元素个数
+-   **zset_max_ziplist_value**：单个元素最大长度
+
+当有序集合中包含的元素数量超过服务器属性 `server.zset_max_ziplist_entries` 的值（默认值为 128 ）或者有序集合中新添加元素的 member 的长度大于服务器属性 `server.zset_max_ziplist_value` 的值（默认值为 64 ）时，Redis 会使用跳跃表作为有序集合的底层实现，否则会使用ziplist作为有序集合的底层实现
+
+#### 跳表 skiplist
+
+skiplist 是一种以空间换取时间的结构。由于链表，无法进行二分查找，因此借鉴数据库索引的思想，提取出链表中关键节点（索引），先在关键节点上查找，再进入下层链表查找，提取多层关键节点，就形成了跳表。但是由于索引也要占据一定空间的，所以，索引添加的越多，空间占用的越多
+
+**跳表（链表+多级索引）是可实现二分查找的有序链表**
+
+跳表的时间复杂度为 $O(logN)$，空间复杂度为 $O(N)$
