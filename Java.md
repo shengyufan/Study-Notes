@@ -1061,3 +1061,17 @@ HashSet 底层是 HashMap，可以存放 null 值。其中 key 与添加元素/�
 3.   如果没有，直接加入
 4.   如果有，遍历当前索引的链表，并调用 equals 比较，如果相同，就放弃添加；如果不相同，则添加到最后
 5.   在 Java 8 中，如果一条链表的元素个数为 `TREEIFY_THRESHOLD`（默认是8），并且 table 的大小不小于 `MIN_TREEIFY_CAPACITY`（默认64），就会进行树化，转换为红黑树
+
+##### `LinkedHashSet`
+
+LinkedHashSet 是 HashSet 的子类
+
+LinkedHashSet 底层是一个 LinkedHashMap，底层维护了一个数组和双向链表
+
+LinkedHashSet 根据元素的哈希值来决定元素的存储位置，同时使用链表维护元素的次序，使其遍历顺序与添加顺序一致 
+
+### `Map` 接口
+
+Map 用于保存具有映射关系的数据，即 key 和 value 存在单向对应关系，通过 `get` 函数指定 key 总能找到对应的 value
+
+Map 中的 key 和 value 可以是任何引用类型的数据。key 不允许重复，而 value 允许重复
