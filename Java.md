@@ -1068,10 +1068,63 @@ LinkedHashSet 是 HashSet 的子类
 
 LinkedHashSet 底层是一个 LinkedHashMap，底层维护了一个数组和双向链表
 
-LinkedHashSet 根据元素的哈希值来决定元素的存储位置，同时使用链表维护元素的次序，使其遍历顺序与添加顺序一致 
+LinkedHashSet 根据元素的哈希值来决定元素的存储位置，同时使用链表维护元素的次序，使其遍历顺序与添加顺序一致
+
+##### `TreeSet`
+
+TreeSet 能保证元素的顺序，其底层实现为 TreeMap
+
+当使用无参构造器创建 TreeSet 时，元素为自然顺序
+
+此外 TreeSet 构造器可以使用 Comparator 作为参数，从而实现自定义排序
 
 ### `Map` 接口
 
 Map 用于保存具有映射关系的数据，即 key 和 value 存在单向对应关系，通过 `get` 函数指定 key 总能找到对应的 value
 
 Map 中的 key 和 value 可以是任何引用类型的数据。key 不允许重复，而 value 允许重复
+
+遍历元素的方式
+
+1.   使用 `keySet()` 获得所有的 key，通过 `get()` 获得 value
+2.   使用 `entrySet()` 获得所有的对应关系，通过 `getKey()` 和 `getValue()` 分别获得 key 和 value
+3.   如果只需要 value，使用 `values()` 获得所有的 value
+
+前两种方法使用迭代器或增强 for 循环，而第三种方法还可以使用普通 for 循环
+
+#### `HashMap`
+
+HashMap 是线程不安全的
+
+HashMap 底层实现是数组 + 链表，在 Java 8 之后引入了红黑树
+
+扩容机制
+
+1.   当创建对象时，将加载因子（loadfactor）初始化为 0.75
+2.   当添加 key- value 对时，通过 key 的哈希值得到在 table 的索引。然后判断该索引处是否有元素，如果没有元素直接添加。如果该索引处有元素，继续判断该元素的 key 是否和准备加入的 key 相等，如果相等，则直接替换 value；如果不相等需要判断是树结构还是链表结构，做出相应处理。如果添加时发现容量不够，则需要扩容
+3.   第一次添加，则需要扩容 table 容量为16，临界值（threshold）为 $16 \times 0.75 = 12$
+4.   以后再扩容，则需要扩容 table 容量为原来的 2 倍，临界值为原来的2倍。注意扩容机制的触发在于哈希表中存储的元素总量而非单一链表上的元素数量
+5.   在 Java 8 中，如果一条链表的元素个数超过 `TREEIFY_THRESHOLD`（默认是8），则需要判断 table 的大小，如果 table 的大小不小于 `MIIN_TREEIFY_CAPACITY`（默认64），就会进行树化（红黑树）；否则，执行 2 倍扩容
+
+#### `Hashtable`
+
+Hashtable 中的 key 和 value 均不能为 null
+
+Hashtable 是线程安全的
+
+Hashtable 底层实现是数组 + 链表。其 table 初始大小为 11，扩容机制与 HashMap 类似，但扩容算法为原大小的二倍加 1，即 $new = old \times 2 + 1$
+
+#### `Properties`
+
+Properties 继承自 Hashtable 类
+
+Properties 用于从配置文件中加载数据到对象中，并且提供读取（`get`）和修改（`remove`、`put`）的方法
+
+#### `TreeMap`
+
+TreeMap 能保证 key 的顺序
+
+当使用无参构造器创建时，默认为自然排序
+
+此外 Comparator 可以作为参数传入 TreeMap 的构造器，从而实现自定义排序
+
