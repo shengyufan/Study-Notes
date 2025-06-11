@@ -1128,3 +1128,18 @@ TreeMap 能保证 key 的顺序
 
 此外 Comparator 可以作为参数传入 TreeMap 的构造器，从而实现自定义排序
 
+### `Collections`
+
+Collections 作为一个工具类，其中提供了很多辅助函数
+
+常见方法
+
+-   `reverse()`：反转元素
+-   `shuffle()`：随机打乱顺序
+-   `sort()`：根据元素自然顺序，升序排序。另外可使用 Comparator 自定义排序
+-   `swap()`：将指定两个位置的元素进行交换
+-   `max()`：根据自然顺序返回最大元素。另外可使用 Comparator 自定义排序
+-   `min()`：根据自然顺序返回最小元素。另外可使用 Comparator 自定义排序
+-   `frequency()`：返回指定元素在集合中出现次数
+-   `copy()`：将源集合复制到目标集合中
+-   `replaceAll()`：使用新值替换所有指定的旧值
