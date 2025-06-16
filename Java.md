@@ -1347,3 +1347,60 @@ t1.start();
 
 -   线程执行同步方法、同步代码块时，调用 `sleep()` 或 `yield()` 方法暂停线程执行
 -   线程执行同步代码块时，其他线程调用该线程的 `suspend()` 方法挂起该线程
+
+## I/O 流
+
+### 文件
+
+文件：保存数据的地方。文件在程序中以**流**的形式来操作
+
+流：数据在数据源和文件之间经历的路径
+
+-   输入流：从文件到程序
+-   输出流：从程序到文件
+
+相关方法
+
+-   `createNewFile()`：创建新文件
+-   `getName()`：返回名称
+-   `getAbsolutePath()`：返回绝对路径
+-   `getParent()`：返回父级目录
+-   `length()`：文件大小（字节数）
+-   `exists()`：文件或目录是否存在
+-   `isFile()`：是否为文件
+-   `isDirectory()`：是否为文件夹
+-   `mkdir()`：创建一级目录
+-   `mkdirs()`：创建多级目录
+-   `delete()`：删除空目录或文件
+
+### InputStream
+
+字节输入流。抽象类（无法直接创建对象）
+
+#### FileInputStream
+
+读取文件方法
+
+-   `read()`：每次读取单个字节。返回读取的字节
+-   `read(byte[] b)`：一次最多读取字节数组长度的数据将其存入数组中。返回实际读取字节数
+-   `read(byte[] b, int off, int len)`：一次最多将 len 个字节的数据读入数组中
+
+### OutputStream
+
+字节输出流
+
+#### FileOutputStream
+
+写入文件方法
+
+-   `write(int b)`：将指定字节写入输出流
+-   `write(byte[] b)`：将数组长度的字节从数组中写入输出流
+-   `write(byte[] b, int off, int len)`：将 len 字节从位于偏移量 off 的数组写入输出流
+
+### Reader
+
+字符输入流
+
+### Writer
+
+字符输出流
