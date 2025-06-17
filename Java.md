@@ -1120,6 +1120,14 @@ Properties 继承自 Hashtable 类
 
 Properties 用于从配置文件中加载数据到对象中，并且提供读取（`get`）和修改（`remove`、`put`）的方法
 
+相关方法
+
+-   `load()`：加载配置文件到 Properties 对象
+-   `list()`：将数据显示到指定设备
+-   `getProperty(key)`：根据键获取对应值
+-   `setProperty(key, value)`：设置键值对到 Properties 对象
+-   `store()`：将 Properties 中的键值对存储到配置文件中
+
 #### `TreeMap`
 
 TreeMap 能保证 key 的顺序
@@ -1373,11 +1381,27 @@ t1.start();
 -   `mkdirs()`：创建多级目录
 -   `delete()`：删除空目录或文件
 
-### InputStream
+### 节点流与处理流
 
-字节输入流。抽象类（无法直接创建对象）
+节点流：从一个特定的数据读写数据
 
-#### FileInputStream
+处理流：也称为包装流，连接在已存在的节点流或处理流上，从而提供更强大的读写能力
+
+![io-stream](assets/io-stream.png)
+
+节点流是底层流/低级流，直接跟数据源相接
+
+﻿﻿处理流既可以消除不同节点流的实现差异，也可以提供更方便的方法来完成输入输出
+
+处理流对节点流进行包装，使用了修饰器设计模式，不会直接与数据源相连
+
+关闭处理流时，只需关闭外层处理流即可，底层实现节点流的关闭
+
+### `InputStream`
+
+字节输入流，用于处理二进制文件
+
+#### `FileInputStream`
 
 读取文件方法
 
@@ -1385,11 +1409,19 @@ t1.start();
 -   `read(byte[] b)`：一次最多读取字节数组长度的数据将其存入数组中。返回实际读取字节数
 -   `read(byte[] b, int off, int len)`：一次最多将 len 个字节的数据读入数组中
 
-### OutputStream
+#### `ObjectInputStream`
 
-字节输出流
+针对对象的字节输入处理流，如直接读入对象
 
-#### FileOutputStream
+其操作的对象需要支持**反序列化**操作，即同时恢复数据的值和数据类型
+
+读取文件时，需要保证顺序与存储（即序列化）时顺序一致
+
+### `OutputStream`
+
+字节输出流，用于处理二进制文件
+
+#### `FileOutputStream`
 
 写入文件方法
 
@@ -1397,10 +1429,44 @@ t1.start();
 -   `write(byte[] b)`：将数组长度的字节从数组中写入输出流
 -   `write(byte[] b, int off, int len)`：将 len 字节从位于偏移量 off 的数组写入输出流
 
-### Reader
+#### `ObjectOutputStream`
 
-字符输入流
+针对对象的字节输入处理流，如直接将对象写入文件
 
-### Writer
+其操作的对象需要支持**序列化**操作，即同时保存数据的值和数据类型
 
-字符输出流
+序列化的类中建议添加 SerialVersionUID，为了提高版本的兼容性
+
+序列化对象时，默认将里面所有属性都进行序列化，但除了 static 或 transient 修饰的成员
+
+序列化对象时，要求里面属性的类型也需要实现序列化接口
+
+序列化具备可继承性，也就是如果某类已经实现了序列化，则它的所有子类也已经默认实现了序列化
+
+### `Reader`
+
+字符输入流，用于处理文本文件
+
+#### `FileReader`
+
+相关方法
+
+-   `read()`：读取单个字符
+-   `read(char[])`：批量读取多个字符到数组中，返回实际读取字符数
+-   `new String(char[])`：将字符数组转为字符串
+-   `new String(char[], off, len)`：将字符数组指定部分转为字符串
+
+### `Writer`
+
+字符输出流，用于处理文本文件
+
+#### `FileWriter`
+
+相关方法
+
+-   `write()`：写入单个字符
+-   `write(char[])`：写入指定数组
+-   `write(char[], off, len)`：写入指定数组的指定部分
+-   `write(string)`：写入整个字符串
+-   `write(string, off, len)`：写入字符串的指定部分
+
