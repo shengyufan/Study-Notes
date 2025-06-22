@@ -1490,6 +1490,8 @@ IP 地址：用于唯一标识网络中的主机，由网络地址和主机地�
 
 端口：标识主机上某个特定的网络程序
 
+`netstat -an`：查看当前主机网络情况，包括端口监听和网络连接
+
 ### 网络协议
 
 协议：网络编程中数据的组织形式
@@ -1508,3 +1510,197 @@ UDP：用户数据协议
 2.  ﻿﻿﻿每个数据报的大小限制在64K内
 3.  ﻿﻿﻿因无需连接，故是不可靠的
 4.  ﻿﻿发送数据结束时无需释放资源（因为不是面向连接的），速度快
+
+### `InetAddress`
+
+用于表示 IP 地址（IPv4 或 IPv6）和主机名的类，可以用来获取主机名、IP 地址，也可以通过域名解析 IP 地址
+
+#### 常用方法
+
+-   `getLocalHost()`：输出本机的主机名和 IP 地址
+-   `getByName()`：根据指定主机名/域名，获取 InetAddress 对象
+-   `getHostAddress()`：通过 InetAddress 对象获取对应 IP 地址
+-   `getHostName()`：通过 InetAddress 对象获取对应主机名/域名
+
+### `Socket`
+
+套接字（Socket）允许程序把网络连接看做一个流，数据在两个 Socket 之间通过 I/O 传输
+
+主动发起通信的应用程序为客户端，等待通信请求的为服务端
+
+#### 字节流编程
+服务端：
+
+```java
+public class Server {
+  	public static void main(String[] args) throws IOException {
+      	// ServerSocket 通过 accept() 方法创建 Socket，从而实现多程序连接
+      	ServerSocket serverSocket = new ServerSocket(9999);
+      	Socket socket = serverSocket.accept();
+      	InputStream is = socket.getInputStream();
+      	byte[] buf = new byte[1024];
+      	int readLen = 0;
+      	while ((readLen = is.read(buf)) != -1) {
+          	System.out.println(new String(buf, 0, readLen));
+        }
+      	
+      	OutputStream os = socket.getOutputStream();
+      	os.write("Hello client".getBytes());
+      	socket.shutdownOutput();
+      	
+      	is.close();
+      	os.close();
+      	socket.close();
+      	serverSocket.close();
+    }
+}
+```
+
+客户端：
+
+```java
+public class Client {
+  	public static void main(String[] args) throws IOException {
+      	Socket socket = new Socket(InetAddress.getLocalHost(), 9999);
+      	OutputStream os = socket.getOutputStream();
+      	os.write("Hello server".getBytes());
+      	// 设置结束标记，切换至半关闭状态，即 Socket 知道当前输出结束，但连接依然存在，可接受返回的消息
+      	socket.shutdownOutput();
+      	
+      	InputStream is = socket.getInputStream();
+      	byte[] buf = new byte[1024];
+      	int readLen = 0;
+      	while ((readLen = is.read(buf)) != -1) {
+          	System.out.println(new String(buf, 0, readLen));
+        }
+      	
+      	is.close();
+      	os.close();
+      	socket.close();
+    }
+}
+```
+
+#### 字符流编程
+
+服务端：
+
+```java
+public class Server {
+  	public static void main(String[] args) throws IOException {
+      	// ServerSocket 通过 accept() 方法创建 Socket，从而实现多程序连接
+      	ServerSocket serverSocket = new ServerSocket(9999);
+      	Socket socket = serverSocket.accept();
+      	
+      	// 使用 InputStreamReader 将字节流转为字符流
+      	InputStream is = socket.getInputStream();
+      	BufferedReader br = new BufferedReader(new InputStreamReader(is));
+      	String s = br.readLine();
+      	System.out.println(s);
+      	
+      	// 使用 OutputStreamWriter 将字节流转为字符流
+      	OutputStream os = socket.getOutputStream();
+      	BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(os));
+      	bw.write("Hello client");
+      	// 另一种设置结束标记的方法
+      	bw.newLine();
+      	// 字符流需要手动刷新，否则数据无法写入数据通道
+      	bw.flush();
+      	
+      	bw.close();
+      	br.close();
+      	socket.close();
+      	serverSocket.close();
+    }
+}
+```
+
+客户端：
+
+```java
+public class Client {
+  	public static void main(String[] args) throws IOException {
+      	Socket socket = new Socket(InetAddress.getLocalHost(), 9999);
+      	
+      	OutputStream os = socket.getOutputStream();
+      	BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(os));
+      	bw.write("Hello server");
+      	bw.newLine();
+      	bw.flush();
+      	
+      	InputStream is = socket.getInputStream();
+      	BufferedReader br = new BufferedReader(new InputStreamReader(is));
+      	String s = br.readLine();
+      	System.out.println(s);
+      	
+      	br.close();
+      	bw.close();
+      	socket.close();
+    }
+}
+```
+
+### `DatagramSocket`
+
+UDP 数据报通过数据报套接字 `DatagramSocket` 发送和接收，在数据报中包含了发送端的 IP 地址和端口号以及接受端的 IP 地址和端口号
+
+UDP 协议中每个数据报都给出完整的地址信息，因此无须简历发送方和接收方的连接
+
+UDP 中并没有明确地区分发送端和接收端
+
+接收端
+
+```java
+public class Receiver {
+    public static void main(String[] args) throws IOException {
+        DatagramSocket ds = new DatagramSocket(8888);
+        // 构建 DatagramPacket 对象
+        // UDP 单个数据报最大为 64k
+        byte[] buff = new byte[64 * 1024];
+        DatagramPacket dp = new DatagramPacket(buff, buff.length);
+        // 接收数据，将其填充到 DatagramPacket 对象中
+        ds.receive(dp);
+
+        // 将 DatagramPacket 进行拆包
+        int len = dp.getLength();
+       	byte[] data = dp.getData();
+        String msg = new String(data, 0, len);
+        System.out.println(msg);
+        
+        // 回复消息
+        data = "Hello! It is Y".getBytes();
+        // 假设 Sender IP 地址为 192.168.1.1
+        dp = new DatagramPacket(data, data.length, InetAddress.getByName('192.168.1.1'), 8889);
+        ds.send(dp);
+        
+        // 关闭
+        ds.close();
+    }
+}
+```
+
+发送端
+
+```java
+public class Sender {
+    public static void main(String[] args) throws IOException {
+        DatagramSocket ds = new DatagramSocket(8889);
+        byte[] data = "Hello! It is X".getBytes();
+        // 假设 Receiver IP 地址为 192.168.1.2
+        DatagramPacket dp = new DatagramPacket(data, data.length, InetAddress.getByName('192.168.1.2'), 8888);
+        ds.send(dp);
+        
+        byte[] buff = new byte[64 * 1024];
+        dp = new DatagramPacket(buff, buff.length);
+        ds.receive(dp);
+
+        int len = dp.getLength();
+       	data = dp.getData();
+        String msg = new String(data, 0, len);
+        System.out.println(msg);
+        
+        ds.close();
+    }
+}
+```
+
