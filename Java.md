@@ -1705,3 +1705,150 @@ public class Sender {
 ```
 
 ## 反射
+
+开闭原则：在不修改源码的基础上，开放扩展
+
+-   **对扩展开放**：意味着类的行为是可以扩展的。也就是说，你可以通过添加新代码（如子类或实现新接口）来增加功能
+-   **对修改关闭**：意味着类一旦开发完成，就不应该再被修改。你不应该通过更改现有的类来添加新功能，而应通过扩展来实现
+
+反射：允许在运行时检查类、接口、字段、方法，并可以动态调用它们。通过反射，你可以在不知道对象实际类型的情况下操作对象，这对于构建灵活、通用的框架非常有用
+
+反射常用于
+
+-   **在运行时获取类的信息**（如类名、方法、字段、构造器等）
+-   **动态创建对象实例**
+-   **动态调用对象的方法**
+
+- **访问或修改对象的私有字段**
+
+-   **与注解（Annotation）配合使用，实现依赖注入、AOP 等机制**
+
+简单示例
+
+```java
+import java.lang.reflect.Method;
+
+public class Example {
+    public void sayHello() {
+        System.out.println("Hello, reflection!");
+    }
+
+    public static void main(String[] args) throws Exception {
+        // 获取 Class 对象
+        Class<?> cls = Class.forName("Example");
+        
+        // 创建实例
+        Object obj = cls.getDeclaredConstructor().newInstance();
+        
+        // 获取方法
+        Method method = cls.getMethod("sayHello");
+        
+        // 调用方法
+        method.invoke(obj);
+    }
+}
+```
+
+优点：可以动态创建和使用对象，使用灵活
+
+缺点：使用反射为解释执行，对效率有影响
+
+反射中 Method，Field 和 Constructor 对象都有 `setAccessible()` 方法，其作用在于启动和禁用访问安全检查的开关。当将其参数设置为 `true` 时，表示使用时取消访问检查，可提高反射效率
+
+### `Class`
+
+Class 也是一个类，继承 Object 类
+
+Class 对象是系统创建的，对于某个类的 Class 类对象在内存中只有一份，因为类只会加载一次
+
+每个类的实例都知道自己由哪个 Class 实例生成，通过 Class 对象和 API 可完整获得一个类的完整结构
+
+Class 对象存放在堆中
+
+类的字节码二进制数据（即元数据）存放在方法区中，其包括方法代码，变量名，方法名和访问权限等
+
+#### `Class` 类常用方法
+
+| 方法名                                             | 功能说明                                                     |
+| -------------------------------------------------- | ------------------------------------------------------------ |
+| static Class forName(String name)                  | 返回指定类名 name 的 Class 对象                              |
+| Object newInstance()                               | 调用缺省构造函数，返回该 Class 对象的一个实例                |
+| getPackage()                                          | 返回此 Class 对象所在包的相关信息 |
+| getName()                                          | 返回此 Class 对象所表示的实体（类、接口、数组类、基本类型等）名称 |
+| Class getSuperClass()                              | 返回当前 Class 对象的父类的 Class 对象                       |
+| Class[] getInterfaces()                            | 获取当前 Class 对象的接口                                    |
+| ClassLoader getClassLoader()                       | 返回该类的类加载器                                           |
+| Class getSuperclass()                              | 返回表示此 Class 所表示的实体的超类的 Class                  |
+| Constructor[] getConstructors()                    | 返回一个包含某些 Constructor 对象的数组                      |
+| Field[] getDeclaredFields()                        | 返回 Field 对象的一个数组                                    |
+| Method getMethod(String name, Class... paramTypes) | 返回一个 Method 对象，此对象的形参类型为 paramType           |
+
+### 获取 `Class` 对象
+
+1.   通过 `forName()` 
+
+     ```java
+     String classAllPath = "com.example.Car";// 可通过读取配置文件获取
+     Class‹?> cls1 = Class.forName(classAllPath);
+     System.out.println(cls1);
+     ```
+
+2.   通过类名.class，常用语参数传递
+
+     ```java
+     Class cls2 = Car. class;
+     System.out.println(cls2);
+     ```
+
+3.   如果对象实例存在，通过 ` getClass()` 
+
+     ```java
+     Car car = new Car();
+     Class cls3 = car.getClass();
+     System.out.println(cls3);
+     ```
+
+4.   通过类加载器获取类的 Class 对象
+
+     ```java
+     String classAllPath = "com.example.Car";
+     ClassLoader classLoader = car.getClass().getClassLoader();
+     Class cls4 = classLoader.loadClass(classAllPath);
+     System.out.println(cls4);
+     ```
+
+5.   基本数据类型
+
+     ```java
+     Class<Integer> integerCls = int.class;
+     System.out.println(integerCls);
+     ```
+
+6.   基本数据类型对应的包装类
+
+     ```java
+     Class<Integer> integerCls2 = Integer.TYPE;
+     System.out.println(integerCls2);
+     ```
+
+### 类加载
+
+静态加载：编译时加载相关的类，如果没有则编译报错，依赖性太强
+
+动态加载：运行时加载需要的类，如果运行时未使用不存在的类，则不会报错，从而降低依赖性
+
+**反射实现动态加载**
+
+#### 加载过程
+
+![class-load](assets/class-load.png)
+
+加载：将类的 class 文件读入内存，并为之创建一个 Class 对象。主要目的是将字节码从不同数据转换为二进制字节流加载到内存中
+
+连接：将类的二进制数据合并到 JRE 中
+
+-   验证：确保 Class 文件的字节流中包含的信息符合当前虚拟机的要求，并且不会危害虚拟机安全。包括文件格式验证、元数据验证、字节码验证和符号引用验证
+-   准备：JVM 对静态变量分配内存并进行默认初始化
+-   解析：虚拟机将常量池内的符号引用替换为直接引用
+
+初始化：JVM 负责对类进行初始化，主要指静态成员。使用 `clinit()` 依次自动手机类中的所有静态变量的赋值动作和静态代码块中的语句
