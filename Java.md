@@ -1858,3 +1858,109 @@ Class 对象存放在堆中
 JDBC 为访问不同数据提供了统一的接口，为使用者屏蔽了细节问题
 
 使用 JDBC 可以连接任何提供了 JDBC 驱动程序的数据系统，从而完成对数据库的各种操作
+
+示例代码
+
+```java
+public class JDBCDemo {
+    public static void main(String[] args) throws Exception {
+        Driver driver = new com.mysql.jdbc.Driver();
+        String url = "jdbc:mysql://localhost:3306/jdbc_db";
+        Properties info = new Properties0:
+        info.setProperty("user", "root");
+        info.setProperty("password", "abc123");
+        // 获取连接
+        Connection connection = driver.connect(url, info);
+        
+        // 执行增删改查
+        // 编写 sql 语句
+        // 删除
+        String sql = "delete from actor where id = 2";
+        // 更新
+        // String sql = "update actor set name= 'actor2' where id = 1";
+        // 增加
+        // String sql = "insert into actor values(null, 'actor1', 'male', '1990-01-01', '1234567890')";
+        
+        // 获取执行 sql 语句的命令对象
+        Statement statement = connection.createStatementQ;
+        // 使用命令对象指向 sql 语句，返回结果可能为操作影响的行数
+        int update = statement.executeUpdate(sql):
+        // 处理执行结果
+        System.out.println(update > 0 ? "success" : "failed");
+        // 4.关闭连接
+        statement.close();
+        connection.close();
+    }
+}
+```
+
+### 连接方式
+
+1.   使用 `Driver` 和 `connect()` 方法静态加载，但灵活性差，依赖性强
+
+2.   使用反射机制实现动态加载
+
+     ```java
+     Class cls = Class.forName("com.mysql.jdbc.Driver");
+     Driver driver = (Driver) cls.newInstance();
+     
+     String url = "jdbc:mysql://localhost:3306/jdbc_db";
+     Properties info = new Properties0:
+     info.setProperty("user", "root");
+     info.setProperty("password", "abc123");
+     // 获取连接
+     Connection connection = driver.connect(url, info);
+     ```
+
+3.   使用 `DriverManager` 替代 `Driver`
+
+     ```java
+     Class cls = Class.forName("com.mysql.jdbc.Driver");
+     Driver driver = (Driver) cls.newInstance();
+     
+     String url = "jdbc:mysql://localhost:3306/jdbc_db";
+     String user = "root";
+     String password = "abc123";
+     
+     // 注册 Driver
+     DriverManager.registerDriver(driver);
+     Connection conn = DriverManager.getconnection(url, user, password);
+     ```
+
+4.   使用 `Class.forName()` 方法自动完成注册驱动，简化代码
+
+     ```java
+     Class.forName("com.mysql.jdbc.Driver");
+     
+     String url = "jdbc:mysql://localhost:3306/jdbc_db";
+     String user = "root";
+     String password = "abc123";
+     
+     Connection conn = DriverManager.getconnection(url, user, password);
+     ```
+
+5.   改进上述方法，使用配置文件连接
+
+     ```properties
+     # 配置文件: mysql.properties
+     user=root
+     password=abc123
+     url=jdbc:mysql://localhost:3306/jdbc_db
+     driver=com.mysql.jdbc.Driver
+     ```
+
+     ```java
+     Properties properties = new Properties();
+     properties.load(new FileInputStream("mysql.properties"))
+     
+     Class.forName(properties.getProperty("driver"));
+     
+     String url = properties.getProperty("url");
+     String user = properties.getProperty("user");
+     String password = properties.getProperty("password");
+     
+     Connection conn = DriverManager.getconnection(url, user, password);
+     ```
+
+     
+
