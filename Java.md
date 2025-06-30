@@ -1871,22 +1871,34 @@ public class JDBCDemo {
         info.setProperty("password", "abc123");
         // 获取连接
         Connection connection = driver.connect(url, info);
+        // 获取执行 sql 语句的命令对象
+        Statement statement = connection.createStatement();
         
-        // 执行增删改查
-        // 编写 sql 语句
+        // 执行增删改
         // 删除
-        String sql = "delete from actor where id = 2";
+        // String sql = "delete from actor where id = 2";
         // 更新
-        // String sql = "update actor set name= 'actor2' where id = 1";
+        // String sql = "update actor set name = 'actor2' where id = 1";
         // 增加
         // String sql = "insert into actor values(null, 'actor1', 'male', '1990-01-01', '1234567890')";
-        
-        // 获取执行 sql 语句的命令对象
-        Statement statement = connection.createStatementQ;
         // 使用命令对象指向 sql 语句，返回结果可能为操作影响的行数
-        int update = statement.executeUpdate(sql):
+        // int update = statement.executeUpdate(sql);
         // 处理执行结果
-        System.out.println(update > 0 ? "success" : "failed");
+        // System.out.println(update > 0 ? "success" : "failed");
+        
+        // 查询
+        String sql = "select id, name, gender, borndate from actor";
+        // 执行查询语句，返回结果集
+        ResultSet rs = statement.executeQuery(sql);
+        // 遍历结果集
+        while (rs.next()) {
+            int id = rs.getInt(1);
+            String name = rs.getString(2);
+            String gender = rs.getString(3);
+            Date borndate = rs.getDate(4);
+        }
+        rs.close();
+        
         // 4.关闭连接
         statement.close();
         connection.close();
@@ -1962,5 +1974,192 @@ public class JDBCDemo {
      Connection conn = DriverManager.getconnection(url, user, password);
      ```
 
-     
+
+### `Statement`
+
+用于执行静态 SQL 语句并返回其生成的结果对象
+
+在连接建立后，需要对数据库进行访问。执行 SQL 语句可通过
+
+-   Statement
+-   PreparedStatement
+-   CallableStatement
+
+Statement 对象执行 SQL 语句，存在 SQL 注入风险
+
+SQL 注入：利用系统没有对用户输入数据进行充分检查的漏洞，在用户输入数据中注入非法的 SQL 语句或命令，从而达到恶意攻击的目的
+
+```sql
+-- 注入 SQL 示例，总能返回结果
+SELECT * FROM admin WHERE name = '1' OR 'AND password =' OR '1' == '1'
+```
+
+使用 `PreparedStatement` 解决该问题
+
+```java
+Class.forName("com.mysql.jdbc.Driver");
+
+String url = "jdbc:mysql://localhost:3306/jdbc_db";
+String user = "root";
+String password = "abc123";
+
+Connection conn = DriverManager.getconnection(url, user, password);
+
+String name = "admin";
+String pwd = "admin";
+
+// 编写查询 SQL
+String sql = "select COUNT(*) from admin where username = ? AND password = ?";
+// 编写增删改 SQL，注意修改赋值语句，如修改语句需要更改顺序，删除语句只有一个字段
+// String sql = "insert into admin values(?, ?)";
+// String sql = "update admin set password = ? where name = ?";
+// String sql = "delete from admin where name = ?";
+
+// 获取 PreparedStatement 对象
+PreparedStatement ps = conn.prepareStatement(sql);
+// 给占位符 ? 赋值
+ps.setString(1, name);
+ps.setString(2, pwd);
+
+// 执行查询命令
+ResultSet rs = ps.executeQuery();
+if (rs.next()) {
+    int count = rs.getInt(1);
+    System.out.println(count > 0 ? "Ok" : "Failed");
+}
+rs.close();
+
+// 执行增删改命令
+// int rows = ps.executeUpdate();
+// System.out.println(rows > 0 ? "Ok" : "Failed");
+
+ps.close();
+conn.close();
+```
+
+### 事务
+
+JDBC 程序中当一个 Connection 对象创建时，默认情况下是自动提交事务，即每次执行一个  SQL 语句时，如果执行成功，就会向数据库自动提交，而不能回滚
+
+调用 Connection 的 `setAutoCommit(false)` 可以取消自动提交事务
+
+在所有的 SQL 语句都成功执行后，调用 Connection 的 `commit()` 方法提交事务
+
+在其中某个操作失败或出现异常时，调用 Connection 的 `rollback()` 方法回滚事务
+
+### 批处理
+
+当需要成批插入或者更新记录时。可以采用 Java 的批量更新机制，这一机制允许多条语句一次性提交给数据库批量处理。通常情况下比单独提交处理更有效率
+
+相关方法
+
+-   `addBatch()`：添加需要批量处理的 SQL 语句或参
+-   `executeBatch()`：执行批量处理语句
+-   `clearBatch()`：清空批处理包的语句
+
+批处理往往和 PreparedStatement 一起搭配使用，可以既减少编译次数，又减少运行次数，大大提高效率
+
+**注意**：JDBC 连接 MySQL 时，如果要使用批处理功能，需要在 URL 中添加参数 `?rewriteBatchedStatements=true`
+
+```java
+public void testBatch throws SQLException {
+    // 1.获取连接，注意 URL 需要添加参数
+    Connection connection = JDBCUtils.getConnection();
+    // 2.执行插入
+    PreparedStatement statement = connection.prepareStatement("insert into admin values(null, ?, ?)");
+    long start = System.currentTimeMillis();
+    for (int i = 1; i <= 50000; i++) {
+        statement.setString(1, "tom" + i);
+        statement.setString(2,"0000");
+        // 添加 sql 语句到批处理包中
+       	statement.addBatch();
+        if (i % 1000 == 0) {
+            // 执行批处理包中的 sql 语句
+            statement.executeBatch();
+            // 清空批处理包中的 sql 语句
+            statement.clearBatch();
+        }
+    }
+    long end = System.currentTimeMillis();
+    System.out.println("Time" + (end - start));
+    
+    JDBCUtils.close(null, statement, connection);
+}
+```
+
+### 连接池
+
+传统连接方法分析
+
+-   传统的 JDBC 数据库连接使用 DriverManager 来获取，每次向数据库建立连接的时候都要将 Connection 加载到内存中，再验证 IP 地址、用户名和密码（0.05s ~ 1s 时间）。需要数据库连接的时候，就向数据库要求一个，频繁的进行数据库连接操作将占用很多的系统资源，容易造成服务器崩溃
+-   每一次数据库连接使用完后都得断开。如果程序出现异常而未能关闭，将导致数据库内存泄漏，最终将导致重启数据库
+-   传统获取连接的方式不能控制创建的连接数量，如连接过多也可能导致内存泄漏，MySQL 崩溃
+
+为解决传统开发中的数据库连接问题，需采用数据库连接池技术
+
+基本原理
+
+-   预先在缓冲池中放入一定数量的连接，当需要建立数据库连接时，只需从“缓冲池”中取出一个，使用完毕之后再放回去
+-   数据库连接池负责分配、管理和释放数据库连接，它允许应用程序重复使用一个现有的数据库连接，而不是重新建立一个
+-   当应用程序向连接池请求的连接数超过最大连接数量时，这些请求将被加入到等待队列中
+
+#### C3P0
+
+```java
+String url = "jdbc:mysql://localhost:3306/jdbc_db";
+String user = "root";
+String password = "abc123";
+String driver = "com.mysql.jdbc.Driver";
+
+ComboPooledDataSource cpds = new ComboPooledDataSource();
+cpds.setDriverClass(driver);
+cpds.setJdbcUrl(url);
+cpds.setUser(user);
+cpds.setPassword(password);
+
+// 设置初始化连接数
+cpds.setInitialPoolSize(10);
+// 设置最大连接数
+cpds.setMaxPoolSize(50);
+Connection conn = cpds.getConnection();
+
+conn.close();
+```
+
+使用配置文件（c3p0-config.xml）模板
+
+```xml
+<c3p0-config>
+    <!-- 数据源名称代表连接池 -->
+    <named-config name="sample">
+        <!-- 驱动类 -->
+        <property name="driverClass">com-mysql. jdbc.Driver</property>
+        <!-- url -->
+        <property name="jdbcUrl">jdbc:mysql://127.0.0.1:3306/jdbc_db</property>
+        <!-- 用户名 -->
+        <property name="user">root</property>
+        <!-- 密码 -->
+        <property name="password">abc123</property>
+        <!-- 每次增长的连接数-->
+        <property name="acquireIncrement">5</property>
+        <!-- 初始的连接数 -->
+        property name="initialPoolSize">10</property>
+        <!-- 最小连接数 -->
+        <property name="minPoolSize">5</property>
+        <!--最大连接数-->
+        <property name="maxPoolSize">50</property>
+        <!-- 可连接的最多的命令对象数 -->
+        <property name="maxStatements">5</property>
+        <!-- 每个连接对象可连接的最多的命令对象数 -->
+        <property name="maxStatementsPerConnection">2</property>
+	</named-config>
+</c3p0-config>
+```
+
+```java
+ComboPooledDataSource cpds = new ComboPooledDataSource("sample");
+Connection conn = cpds.getConnection();
+
+conn.close();
+```
 
