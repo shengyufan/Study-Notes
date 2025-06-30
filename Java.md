@@ -2163,3 +2163,52 @@ Connection conn = cpds.getConnection();
 conn.close();
 ```
 
+#### Druid
+
+阿里提供的更高效的连接池实现
+
+```java
+Properties properties = new Properties();
+properties.load(new FileInputStream("druid.properties"));
+// 创建一个指定参数的数据库连接池，Druid连接池
+DataSource dataSource = DruidDataSourceFactory.createDataSource(properties);
+Connection connection = dataSource.getConnection();
+
+connection.close();
+```
+
+### Apache DBUtils
+
+DBUtils 是 Apache 组织提供的一个开源 JDBC 工具类库，它是对 JDBC 的封装，使用 DBUtils 能极大简化 JDBC 编码的工作量
+
+常用类和接口
+
+-   QueryRunner 类：该类封装了 SQL 的执行，是线程安全的。可以实现增、删、改、查、批处理。使用 QueryRunner 类实现查询
+-   ResultSetHandler 接口：该接口用于处理 java.sql.ResultSet，将数据按要求转换为另一种形式
+
+实现 ResultSetHandler
+
+-   ArrayHandler：把结果集中的第一行数据转成对象数组
+-   ArrayListHandler：把结果集中的每一行数据都转成一个数组，再存放到 List 中
+-   BeanHandler：将结果集中的第一行数据封装到一个对应的 JavaBean 实例中
+-   BeanListHandler：将结果集中的每一行数据都封装到一个对应的 JavaBean 实例中，存放到 List 里
+-   ColumnListHandler：将结果集中某一列的数据存放到 List
+-   KeyedHandler(name)：将结果集中的每行数据都封装到 Map 里，再把这些 map 再存到一个 map 里，其 key 为指定的 key
+-   MapHandler：将结果集中的第一行数据封装到一个 Map 里，key 是列名，value 就是对应的值
+-   MapListHandler：将结果集中的每一行数据都封装到一个 Map 里，然后再存放到 List
+
+```java
+// 已获得 Connection conn
+QueryRunner qr = new QueryRunner();
+String sql = "select * from actor where id >= ?";
+/*
+query 方法执行 SQL 语句，将结果集封装到 ArrayList 中
+参数列表：
+1. conn：数据库连接
+2. sql：SQL 语句
+3. new BeanListHandler<>()：通过反射机制获取类属性，进行封装
+4. 1：占位符 ? 赋值
+*/
+List<Actor> list = qr.query(conn, sql, new BeanListHandler<>(Actor.class), 1);
+```
+
