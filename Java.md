@@ -2200,6 +2200,7 @@ DBUtils 是 Apache 组织提供的一个开源 JDBC 工具类库，它是对 JDB
 ```java
 // 已获得 Connection conn
 QueryRunner qr = new QueryRunner();
+// 查询
 String sql = "select * from actor where id >= ?";
 /*
 query 方法执行 SQL 语句，将结果集封装到 ArrayList 中
@@ -2210,5 +2211,12 @@ query 方法执行 SQL 语句，将结果集封装到 ArrayList 中
 4. 1：占位符 ? 赋值
 */
 List<Actor> list = qr.query(conn, sql, new BeanListHandler<>(Actor.class), 1);
+
+// 增删改
+String sql = "update actor set name = ? where id = ?";
+// String sql = "insert into actor values(null, ?, ?)";
+// String sql = "delete from actor where id = ?";
+// 返回受影响的行数
+int affectedRows = qr.update(conn, sql, "actor 1", 1);
 ```
 
