@@ -2307,3 +2307,53 @@ Java 采用贪婪匹配，即`a{3,4}` 优先匹配较长子字符串 `aaaa`。�
 | `(?:pattern)`            | 匹配 pattern 但不捕获该匹配的子表达式，即它是一个非捕获匹配，不存储供以后使用的匹配。适用于 `or` 字符 `|` 组合模式部件的情况。例如，`industr(?:y|ies)` 是比 `industry|industries` 更经济的表达式 |
 | `(?=pattern)`            | 它是一个非捕获匹配。例如，`Windows (?=95|98|NT|2000)` 匹配 `"Windows 2000"` 中的 `"Windows"`，但不匹配 `"Windows 3.1"` 中的 `"Windows"` |
 | `(?!pattern)`            | 该表达式匹配不处于匹配 pattern 的字符串的起始点的搜索字符串。它是一个非捕获匹配。例如，`Windows (?!95|98|NT|2000)` 匹配 `"Windows 3.1"` 中的 `"Windows"`，但不匹配 `"Windows 2000"` 中的 `"Windows"` |
+
+### 常用类
+
+#### `Pattern`
+
+Pattern 类没有公共构造方法，其对象是一个正则表达式对象
+
+创建一个 Pattern 对象需调用其公共静态方法，返回一个 Pattern 对象
+
+`matches()` 方法用于整体匹配，验证输入字符串是否满足条件
+
+#### `Matcher`
+
+Matcher 对象是对输入字符串进行解释和匹配的引擎。与Pattern 类一样，Matcher 也没有公共构造方法，需要调用 Pattern 对象的 matcher 方法来获得一个 Matcher 对象
+
+| 方法及说明                                                   |
+| ------------------------------------------------------------ |
+| `public int start()` 返回以前匹配的初始索引                  |
+| `public int start(int group)` 返回在以前的匹配操作期间，由指定组所捕获的子序列的初始索引 |
+| `public int end()` 返回最后匹配字符之后的偏移量              |
+| `public int end(int group)` 返回在以前的匹配操作期间，由指定组所捕获子序列的最后字符之后的偏移量 |
+| `public boolean lookingAt()` 尝试将从区域开头开始的输入序列与该模式匹配 |
+| `public boolean find()` 尝试查找与该模式匹配的输入序列的下一个子序列 |
+| `public boolean find(int start)` 重置此匹配器，然后尝试查找匹配该模式、从指定索引开始的输入序列的下一个子序列 |
+| `public boolean matches()` 尝试将整个区域与模式匹配          |
+| `public Matcher appendReplacement(StringBuffer sb, String replacement)` 实现非终端添加和替换步骤 |
+| `public StringBuffer appendTail(StringBuffer sb)` 实现终端添加和替换步骤 |
+| `public String replaceAll(String replacement)` 替换模式与给定替换字符串相匹配的输入序列的每一个子序列 |
+| `public String replaceFirst(String replacement)` 替换模式与给定替换字符串匹配的输入序列的第一个子序列 |
+| `public static String quoteReplacement(String s)` 返回指定字符串的字面替换字符串。这个方法返回一个字符串，就像传递给 Matcher 类的 appendReplacement 方法一个字符串一样工作 |
+
+#### `PatternSyntaxException`
+
+一个非强制异常类，它表示一个正则表达式模式中的语法错误
+
+### 反向引用
+
+分组内容被捕获后，可以在这个括号后被使用，这个被称为反向引用，这种引用既可以是在正则表达式内部，也可以是在正则表达式外部，内部反向引用 `\\` 分组号，外部反向引用 `$` 分组号
+
+```java
+// 匹配两个连续的相同数字
+String reg = "(\\d)\\1";
+
+// 匹配五个连续的相同数字
+String reg1 = "(\\d)\\1{4}";
+
+// 匹配个位与干位相同，十位与百位相同的数
+String reg = "(\\d)(\\d)\\2\\1";
+```
+
