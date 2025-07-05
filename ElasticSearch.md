@@ -510,3 +510,554 @@ Join 类型的缺点则是维护 Join 关系需要占据部分内存，查询较
 3.   避免正则，通配符，前缀查询
 4.   避免空值引起的聚合不准
 5.   为索引的 Mapping 加 Meta 信息
+
+# 高级查询语法
+
+## match_all 匹配所有文档
+
+match_all 查询是一个特殊的查询类型，它用于匹配索引中的所有文档，而不考虑任何特定的查询条件
+
+```json
+GET /<index_name>/_search
+{
+    "query": {
+        "match_all": {}
+    }
+}
+```
+
+可以在 `match_all` 查询中添加额外的参数来控制搜索结果的显示，例如设置返回的文档数量（size）、开始返回的文档位置（from）、排序规则（sort）以及选择返回哪些字段（_source）
+
+返回索引中前 10 个文档，按照文档评分进行排序
+
+```json
+GET /<index_name>/_search
+{
+    "query": {
+        "match_all": {}
+    },
+    "size": 10,
+    "sort": [
+        {"_score": {"order": "desc"}}
+    ]
+}
+```
+
+`_source` 示例
+
+```json
+# 不查看源数据，仅查看元字段
+GET /<index_name>/_search
+{
+    "query": {
+        "match_all": {}
+    },
+    "_source": false
+}
+
+# 返回指定字段
+GET /<index_name>/_search
+{
+    "query": {
+        "match_all": {}
+    },
+    "_source": ["field1", "field2"]
+}
+
+# 返回符合 pattern 的字段，如以 obj. 开头的字段
+GET /<index_name>/_search
+{
+    "query": {
+        "match_all": {}
+    },
+    "_source": "obj.*"
+}
+```
+
+## 精确匹配
+
+精确匹配指搜索内容不经过文本分析，直接用于文本匹配，类似于数据的 SQL 查询，搜索对象大多是索引的非 text 类型字段
+
+精确匹配主要应用于**结构化**数据，如 ID、状态和标签等。其包含
+
+-   term 单字段精确匹配查询
+
+-   ﻿terms 多字段精确匹配
+-   ﻿range 范围查询
+-   exists 是否存在查询
+-   ﻿﻿ids 根据一组 id 查询
+
+### term 单字段
+
+主要应用于单字段精确匹配的场景，term 检索针对非 text 类型，用于 text 类型并不会报错，但结果可能不符合预期
+
+```json
+GET /<index_name>/_search
+{
+    "query": {
+        "term": {
+            "<field.keyword>": {
+                "value": "<exact_value>"
+            }
+        }
+    }
+}
+```
+
+处理多值字段时，term 查询是包含，即查找数组中是否包含匹配项
+
+term 查询对输入不做分词，即会将输入作为一个整体，在倒排索引中查找准确的词项。因此不需要使用相关度算分公式为每个包含该词项的文档进行相关度算分，可以通过 constant_score 将查询转换成一个 filtering，避免算分，并利用缓存，提高性能
+
+-   ﻿将 query 转成 filter，忽略 TF-IDF 计算，避免相关性算分的开销
+-   ﻿﻿filter 可以有效利用缓存
+
+```json
+GET /<index_name>/_search
+{
+    "query": {
+        "constant_score" : {
+            "filter": {
+                "term": {
+                    "<field>.keyword": {
+                        "value": "<exact_value>"
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+### terms 多字段
+
+应用于多值精准匹配场景，它允许用户在单个查询中指定多个词条来进行精确匹配。这种查询方式适合从文档中查找包含多个特定值的字段，例如筛选出具有多个特定标签或状态的项目。而 terms 检索是针对未分析的字段进行精确匹配的，因此它在处理关键词、数字、日期等结构化数据时表现良好
+
+```json
+GET /<index_name>/_search
+{
+    "query": {
+        "terms": {
+            "<field_name>": [
+                "value1",
+                "value2",
+                "value3"
+            ]
+        }
+    }
+}
+```
+
+### range 范围查询
+
+针对指定字段值在给定范围内的文档的检索类型。这种查询适合对数字、日期或其他可排序数据类型的字段进行范围筛选。range 检索支持多种比较操作符，如大于（gt）、大于等于（gte）、小于（lt）和小于等于（lte）等，可以实现灵活的区间查询
+
+```json
+GET /<index_name>/_search
+{
+    "query": {
+        "range": {
+            "<field_name>": {
+                "gte": <lower_bound>,
+                "lte": <upper_bound>
+            }
+        }
+    }
+}
+```
+
+### exists 存在查询
+
+用于筛选具有特定字段值的文档。这种查询类型适用于检查文档中是否存在某个字段，或者该字段是否包含非空值。通过使用 exists 检索，你可以有效地过滤掉缺少关键信息的文档，从而专注于包含所需数据的结果。应用场景包括但不限于数据完整性检查、查询特定属性的文档以及对可选字段进行筛选等
+
+```json
+GET /<index_name>/_search
+{
+    "query": {
+       "exists": {
+           "field": "missing_field"
+       }
+    }
+}
+```
+
+### ids 组查询
+
+用于返回具有指定ID列表的文档，允许我们基于给定的ID组快速召回相关数据，从而实现高效的文档检索
+
+```json
+GET /<index_name>/_search
+{
+    "query": {
+       "ids": {
+           "values": ["id1", "id2"]
+       }
+    }
+}
+```
+
+## 模糊匹配
+
+模糊匹配应用于**结构化**数据，包含
+
+-   ﻿prefix 前缀匹配
+-   ﻿﻿wildcard 通配符匹配
+-   ﻿fuzzy 支持编辑距离的模糊查询
+-   regexp 正则匹配查询
+-   term_set 用于解决多值字段中的文档匹配问题
+
+### prefix 前缀匹配
+
+prefix 会对分词后的 term 进行前缀搜索
+
+-   ﻿它不会对要搜索的字符串分词，传入的前缀就是想要查找的前缀
+-   ﻿默认状态下，前缀查询不做相关性分数计算，它只是将所有匹配的文档返回，然后赋予所有相关分数值为1
+
+其原理为遍历所有倒排索引，并比较每个词项是否以所搜索的前缀开头
+
+```json
+GET /<index_name>/_search
+{
+    "query": {
+       "prefix": {
+           "<field_name>": {
+               "value": "<prefix>"
+           }
+       }
+    }
+}
+```
+
+### wildcard 通配符匹配
+
+一种支持通配符匹配的查询类型，它允许在检索时使用通配符表达式来匹配文档的字段值。通配符包括两种。
+
+-   ﻿星号（*）：表示零或多个字符，可用于匹配任意长度的字符串。
+-   ﻿问号（?）：表示一个字符，用于匹配任意单个字符。
+
+wildcard 检索适用于对部分已知内容的文本字段进行模糊检索。例如，在文件名或产品型号等具有一定规律的字段中，使用通配符检索可以方便地找到满足特定模式的文档
+
+注意，通配符查询可能会导致较高的计算负担，因此在实际应用中应谨慎使用，尤其是在涉及大量文档的情况下
+
+```json
+GET /<index_name>/_search
+{
+    "query": {
+       "wildcard": {
+           "<field_name>": {
+               "value": "<pattern>"
+           }
+       }
+    }
+}
+```
+
+### regexp 正则匹配
+
+用于在字段中执行正则表达式匹配。一种基于正则表达式的检索方法。虽然该检索方式的功能强大，但建议在非必要情况下避免使用，以保持查询性能的高效和稳定
+
+这个查询可以用来搜索满足特定模式的文本，并且比wildcard 查询更加灵活和强大
+
+```json
+GET /<index_name>/_search
+{
+    "query": {
+       "regexp": {
+           "<field_name>": {
+               "value": "<pattern>"
+           }
+       }
+    }
+}
+```
+
+### fuzzy 编辑距离匹配
+
+编辑距离是指从一个单词转换到另一个单词需要编辑单字符的次数。如中文集团到中威集团编辑距离就是 1，只需要修改一个字符；如果 fuzziness 值在这里设置成 2，会把编辑距离为 2 的东东集团也查出来
+
+在用户输入内容存在拼写错误或上下文不一致时，仍然返回与搜索词相似的文档。通过使用编辑距离算法来度量输入词与文档中词条的相似程度，模糊查询在保证搜索结果相关性的同时，有效地提高了搜索容错能力
+
+```json
+GET /<index_name>/_search
+{
+    "query": {
+       "fuzzy": {
+           "<field_name>": {
+               "value": "<term>",
+               # AUTO 为 [0, 1, 2]，即表示编辑距离不超过2
+               "fuzziness": "AUTO",
+           	   # 搜索词的前缀长度，表示在此长度内不会应用模糊匹配
+               "prefix_length": 1
+           }
+       }
+    }
+}
+```
+
+### term_set 数组匹配
+
+用于解决多值字段中的文档匹配问题，检索至少匹配一定数量给定词项的文档，其中匹配的数量可以是固定值，也可以是基于另一个字段的动态值，在处理具有多个属性、分类或标签的复杂数据时非常有用
+
+从应用场景来说，terms set 检索在处理多值字段和特定匹配条件时具有很大的优势。它适用于标签系统、搜索引擎、电子商务系统、文档管理系统和技能匹配等场景
+
+```json
+GET /<index_name>/_search
+{
+    "query": {
+       "term_set": {
+           "<field_name>": {
+               "term": ["term1", "term2"],
+               # 自定义脚本，用于动态计算匹配数量
+               "minimum_should_match_script": {
+                   "source": "<script>"
+               }
+               # 也可以静态指定需要匹配的数量
+               # "minimum_should_match": "<value>"
+    		   # 也可以静态指定需要匹配的字段
+               # "minimum_should_match_field": "<name>"
+           }
+       }
+    }
+}
+```
+
+## 全文检索
+
+全文检索查询旨在基于相关性搜索和匹配文本数据。这些查询会对输入的文本进行分析，将其拆分为词项（单个单词），并执行诸如分词、词干处理和标准化等操作
+
+此类检索主要应用于**非结构化**文本数据，如文章和评论等。其包含
+
+-   match 分词查询
+-   multi_match 多字段查询
+-   match_phrase 短语查询
+-   query_string 与或非表达式查询
+-   simple_query_string
+
+### match 分词查询
+
+使用分析器将查询字符串分解成单独的词条，并在倒排索引中搜索这些词条。 match 查询适用于文本字段，并且可以通过多种参数来调整搜索行为。
+
+对于 match 查询，其底层逻辑的概述：
+
+1.   分词：首先，输入的查询文本会被分词器进行分词。分词器会将文本拆分成一个个词项（terms），如单词、短语或特定字符。分词器通常根据特定的语言规则和配置进行操作
+2.   ﻿﻿匹配计算：一旦查询被分词，ES 将根据查询的类型和参数计算文档与查询的匹配度。对于 match 查询，ES 将比较查询的词项与倒排索引中的词项，并计算文档的相关性得分。相关性得分衡量了文档与查询的匹配程度
+3.   ﻿﻿结果返回：根据相关性得分，ES 将返回最匹配的文档作为搜索结果。搜索结果通常按照相关性得分进行排序，以便最相关的文档排在前面
+
+```json
+GET /<index_name>/_search
+{
+    "query": {
+       "match": {
+           "<field_name>": "<query_str>"
+       }
+    }
+}
+
+GET /<index_name>/_search
+{
+    "query": {
+       "match": {
+           "<field_name>": {
+               "query": "<query_str>",
+               "operator": "or",
+               "minimum_should_match": <value>
+           }
+       }
+    }
+}
+```
+
+### multi_match 多字段查询
+
+用于在多个字段上执行相同的搜索操作。它可以接受一个查询字符串，并在指定的字段集合中搜索这个字符串。multi_match 查询提供了灵活的匹配类型和操作符选项，以便根据不同的搜索需求调整搜索行为
+
+```json
+GET /<index_name>/_search
+{
+    "query": {
+       "multi_match": {
+           "query": "<query_str>",
+           "fields": ["<field1>", "<field2>"]
+       }
+    }
+}
+```
+
+### match_phrase 短语查询
+
+用于执行短语搜索，它不仅匹配整个短语，而且还考虑了短语中各个词的**顺序和位置**。这种查询类型对于搜索精确短语非常有用，尤其是在用户输入的查询与文档中的文本表达方式需要严格匹配时
+
+```json
+GET /<index_name>/_search
+{
+    "query": {
+       "match_phrase": {
+           "<field_name>": {
+               "query": "<phrase>",
+               # 匹配查询词条可间隔的距离
+               "slop": <value>
+           }
+       }
+    }
+}
+```
+
+### query_string 表达式查询
+
+ 它允许使用 Lucene 查询语法来构建复杂的搜索查询。这种查询类型支持多种逻辑运算符，包括与（AND）、或（OR）和非（NOT），以及通配符、模糊搜索和正则表达式等功能。query_string 查询可以在单个或多个字段上进行搜索，并且可以处理复杂的查询逻辑。
+
+其应用场景包括高级搜索、数据分析和报表等，适合处理需满足特定需求、要求支持与或非表达式的复杂查询任务，通常用于专业领域或需要高级查询功能的应用中
+
+```json
+GET /<index_name>/_search
+{
+    "query": {
+       "query_string": {
+           "query": "<query_str>",
+           "default_field": "<field_name>"
+       }
+    }
+}
+```
+
+### simple_query_string
+
+简化版本的 query_string，只支持部分查询语法，不支持 AND OR NOT，会当作字符串处理。支持部分逻辑：
+
+-   ﻿+ 替代 AND
+-   ﻿I 替代 OR
+-   ﻿- 替代 NOT
+
+在生产环境中推荐使用 simple_query_string 而不是 query_string 主要是因为simple_query_string 提供了更宽松的语法，能够容忍一定程度的输入错误，而不会导致整个查询失败
+
+```json
+GET /<index_name>/_search
+{
+    "query": {
+       "simple_query_string": {
+           "query": "<query_str>",
+           "fields": [<field1>"", "<field2>"],
+           "default_operator": "OR"
+       }
+    }
+}
+```
+
+## 布尔查询
+
+布尔查询可以按照布尔逻辑条件组织多条查询语句，只有符合整个布尔条件的文档才会被搜索出来。
+
+在布尔条件中，可以包含两种不同的上下文。
+
+1.  ﻿﻿﻿搜索上下文（query context）：使用搜索上下文时，Elasticsearch 需要计算每个文档与搜索条件的相关度得分，这个得分的计算需使用一套复杂的计算公式，有一定的性能开销，带文本分析的全文检索的查询语句很适合放在搜索上下文中。
+2.  ﻿﻿﻿过滤上下文（filter context）：使用过滤上下文时，Elasticsearch 只需要判断搜索条件跟文档数据是否匹配，例如使用 term query 判断一个值是否跟搜索内容一致，使用 range query 判断某数据是否位于某个区间等。过滤上下文的查询不需要进行相关度得分计算，还可以使用缓存加快响应速度，很多术语级查询语句都适合放在过滤上下文中
+
+支持 4 种组合类型
+
+| 类型     | 说明                                                         |
+| -------- | ------------------------------------------------------------ |
+| must     | 可包含多个查询条件，每个条件均满足的文档才能被搜索到，每次查询需要计算相关度得分，属于搜索上下文 |
+| should   | 可包含多个查询条件，不存在 must 和 filter 条件时，至少要满足多个查询条件中的一个，文档才能被搜索到，否则需满足的条件数量不受限制，匹配到的查询越多相关度越高，也属于搜索上下文 |
+| filter   | 可包含多个过滤条件，每个条件均满足的文档才能被搜索到，每个过滤条件不计算相关度得分，结果在一定条件下会被缓存，属于过滤上下文 |
+| must_not | 可包含多个过滤条件，每个条件均不满足的文档才能被搜索到，每个过滤条件不计算相关度得分，结果在一定条件下会被缓存，属于过滤上下文 |
+
+```json
+GET /<index_name>/_search
+{
+    "query": {
+       "bool": {
+           "must": [
+               {
+                   "match": {
+                       "<field_name>": "<value>"
+                   }
+               },
+               {
+                   "match": {
+                       "<field_name>": "<value>"
+                   }
+               }
+           ]
+       }
+    }
+}
+```
+
+## 高亮
+
+highlight 关键字：可以让符合条件的文档中的关键词高亮
+
+highlight 相关属性：
+
+-   ﻿﻿pre_tags 前缀标签
+-   ﻿﻿post_tags 后缀标签
+-   ﻿﻿tags_schema 设置为 styled 可以使用内置高亮样式
+-   ﻿﻿require_field_match 多字段高亮需要设置为 false
+
+```json
+GET /<index_name>/_search
+{
+    "query": {
+        "term": {
+            "<field.keyword>": {
+                "value": "<exact_value>"
+            }
+        }
+    },
+    "highlight": {
+        "pre_tags": ["<pattern>"],
+        "post_tags": ["<pattern>"],
+        "fields": {
+            "*": {}
+        }
+    }
+}
+```
+
+## 地理空间查询
+
+ElasticSearch 中地理空间数据通常存储在 geo_point 字段类型中，其包含经纬度坐标，用于表示地球上的一个点
+
+允许用户基于地理位置信息来搜索和过滤数据。在 Elasticsearch 这样的全文搜索引擎中，地理空间位置查询被广泛应用，例如在旅行、房地产、物流和零售等行业，用于提供基于位置的搜索功能
+
+```json
+GET /my_index/_search
+{
+    "query": {
+        "bool": {
+            "must": {
+                "match_all": {}
+            },
+            "filter": {
+                "geo_distance": {
+                    "distance": "10km",
+                    "distance_type": "arc",
+                    "location": {
+                        "lat": 39.9,
+                        "lon": 116.4
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+## 向量查询
+
+通过 KNN（K-Nearest Neighbors）算法支持向量近邻检索。这一特性使得 ElasticSearch 在机器学习、数据分析和推荐系统等领域的应用变得更加广泛和强大
+
+向量检索的基本思路是，将文档（或数据项）表示为高维向量，并使用这些向量来执行相似性搜索。在 ElasticSearch 中，这些向量被存储在 dense_vector 类型的字段中，然后使用 KNN 算法来找到与给定向量最相似的其他向量
+
+```json
+POST /<index_name>/_search
+{
+    "knn" : {
+        "field": "<field_name>",
+        "query_vector": [-5, 10, -12],
+        "k": 10,
+        "num_candidates": 100
+    },
+	"fields": [ "<field1>", "<field2>"]
+}
+```
+
