@@ -1413,3 +1413,221 @@ PUT /address
 
 # 聚合
 
+## 指标聚合 Metric Aggregation
+
+### 单值分析
+
+只输出一个分析结果，包含
+
+-   min, max, avg, sum
+-   cardinality
+
+```json
+# 统计最大、最小和平均值
+POST /employees/_search
+{
+    "aggs": {
+        "max_salary": {
+            "max": {
+                "field": "salary"
+            }
+        },
+        "min_salary": {
+            "min": {
+                "field": "salary"
+            }
+        },
+        "avg_salary": {
+            "avg": {
+                "field": "salary"
+            }
+        }
+    }
+}
+```
+
+```json
+# 统计基数
+POST /employees/_search
+{
+    "size": 0,
+    "aggs": {
+        "card_salary": {
+            "cardinality": {
+                "field": "salary"
+            }
+        }
+    }
+}
+```
+
+### 多值分析
+
+输出多个分析结果，包含
+
+-   stats, extended stats
+-   percentile, percentile rank
+-   top hits
+
+```json
+POST /employees/_search
+{
+    "size": 0,
+    "aggs": {
+        "stats_salary": {
+            "stats": {
+                "field": "salary"
+            }
+        }
+    }
+}
+```
+
+## 桶聚合 Bucket Aggregation
+
+按照一定规则，将文档分配到不同的桶中，从而达到分类的目的
+
+terms 类型，需要字段支持 filedata
+
+-   ﻿﻿keyword，默认支持 fielddata
+-   ﻿﻿text 需要在 Mapping 中开启 fielddata，会按照分词后的结果进行分桶（不建议对 text 进行分组）
+
+数字类型
+
+-   ﻿﻿Range / Data Range
+-   ﻿﻿Histogram（直方图）/ Date Histogram
+
+```json
+GET /employees/_search
+{
+    "aggs": {
+        "jobs": {
+      		"terms": {
+        		"field": "job.keyword",
+          		"size": 10,
+                "order": {
+                    "_count": "desc"
+                }
+            }
+        }
+    }
+}
+```
+
+```json
+POST /employees/_search
+{
+    "size": 0,
+    "aggs": {
+        "salary_range": {
+            "range": {
+                "field": "salary",
+                "ranges": [
+                    {
+                        "to": 10000
+                    },
+                    {
+                        "from": 10000,
+                        "to": 20000
+                    },
+                    {
+                        "key": ">20000",
+                        "from": 20000
+                    }
+                ]
+            }
+        }
+    }
+}
+```
+
+支持嵌套，即可以在桶里再做分桶
+
+```json
+POST /employees/_search
+{
+    "size": 0,
+    "aggs": {
+        "Job_salary_stats": {
+            "terms": {
+                "field": "job.keyword"
+            },
+            "aggs": {
+                "salary": {
+                    "stats": {
+                        "field": "salary"
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+## 管道聚合 Pipeline Aggregation
+
+支持对聚合分析的结果，再次进行聚合分析。Pipeline 的分析结果会输出到原结果中，根据位置的不同，分为两类：
+
+-   ﻿﻿Sibling - 结果和现有分析结果同级
+    -   ﻿﻿max, min, avg & sum bucket
+    -   ﻿﻿stats, extended status bucket
+    -   ﻿﻿percentiles bucket
+
+-   ﻿﻿Parent - 结果内嵌到现有的聚合分析结果之中
+    -   ﻿﻿derivative（求导）
+    -   ﻿﻿cumultive sum（累计求和）
+    -   moving function（移动平均值）
+
+```json
+# 平均工资最低的工种
+POST /employees/_search
+{
+    "size": 0,
+    "aggs": {
+        "jobs": {
+            "terms": {
+                "field": "job.keyword",
+                "size": 10
+            },
+            "aggs": {
+                "avg_salary": {
+                    "avg": {
+                        "field": "salary"
+                    }
+                }
+            }
+        },
+        "min_salary_by_job": {
+            "min_bucket": {
+                "buckets_path": "jobs>avg_salary"
+            }
+        }
+    }
+}
+```
+
+## 聚合问题
+
+ElasticSearch 适用于海量数据搜索的场景。在对海量数据进行聚合分析时，会损失搜索的精准度来满足实时性需求
+
+解决方案
+
+1.   设置主分片为 1：ES7 以后默认设置为 1
+2.   调大 shard_size 值：shard_size 值越大，结果越趋近于精准聚合结果值。此外，还可以通过 show_term_doc_count_error 参数显示最差情况下的错误值，用于辅助确定 shard_size 大小。适用于数据量大、分片数多的集群业务场景
+3.   将 size 设置全量值，来解决精度问题：如果分片数据量极大，这样做会耗费巨大的 CPU 资源来排序，而且可能会阻塞网络。由于性能问题，不推荐使用，仅适用于对聚合精准度要求极高的业务场景
+4.   使用 Clickhouse/ Spark 进行精准聚合：适用于数据量非常大、聚合精度要求高、响应速度快的业务场景
+
+## 性能优化
+
+优化方案
+
+1.   插入数据时对索引进行预排序
+     -   ﻿﻿Index sorting（索引排序）可用于在插入时对索引进行预排序，而不是在查询时再对索引进行排序，这将提高范围查询（range query）和排序操作的性能
+     -   ﻿在 ElasticSearch 中创建新索引时，可以配置如何对每个分片内的段进行排序
+     -   适用于读多写少的场景
+
+2.   使用节点查询缓存
+     -   可用于有效缓存过滤器（flter）操作的结果。如果多次执行同一 filter 操作，这将很有效，但是即便更改过滤器中的某一个值，也将意味着需要计算新的过滤器结果
+     -   可以执行一个带有过滤查询的搜索请求，Elasticsearch 将自动尝试使用节点查询缓存来优化性能
+3.   使用分片请求缓存：聚合语句中设置 size 为 0，使用分片请求缓存结果，即只返回聚合结果，不返回查询结果
+4.   拆分聚合，使聚合并行化：ES 默认聚合为非并行运行。但为每个聚合提供自己的查询并执行 msearch 时，性能会有显著提升
