@@ -1061,3 +1061,355 @@ POST /<index_name>/_search
 }
 ```
 
+# 相关性
+
+用于描述一个文档与查询语句匹配程度的度量标准
+
+## TF-IDF 算法
+
+ES5 之前使用该算法计算相关性
+$$
+\text{TF-IDF}(t, d, D) = \text{TF}(t, d) \times \text{IDF}(t, D)
+$$
+TF 是词频：检索词在文档中出现的频率越高，相关性也越高
+$$
+\text{TF}(t, d) = \frac{f_{t,d}}{\sum_{k} f_{k,d}}
+$$
+
+- $f_{t,d}$：词语（t）在文档（d）中出现的次数  
+- $\sum_{k} f_{k,d}$：文档（d） 中所有词语出现的总次数
+
+IDF 是逆向文本频率：每个检索词在索引中出现的频率，频率越高，相关性越低
+$$
+\text{IDF}(t, D) = \log \left( \frac{N}{1 + |\{d \in D : t \in d\}|} \right)
+$$
+
+- N：语料库中总文档数  
+- $|\{d \in D : t \in d\}|$：包含词（t）的文档数  
+- 分母加 1 是为了避免除以 0
+
+还可以乘上字段长度归一值：检索词出现在一个内容短的 title 要比同样的词出现在一个内容长的 content 字段权重更大
+
+## BM25 算法
+
+BM25 在考虑词频（TF）和逆文档频率（IDF）的基础上，引入了对**文档长度的惩罚**，避免长文档“占便宜”
+$$
+\text{score}(D, Q) = \sum_{t \in Q} \text{IDF}(t) \cdot \frac{f(t, D) \cdot (k_1 + 1)}{f(t, D) + k_1 \cdot \left(1 - b + b \cdot \frac{|D|}{\text{avgdl}}\right)}
+$$
+
+- $f(t, D)$：词 $t$ 在文档 $D$ 中出现的次数（词频）
+- $|D|$：文档 $D$ 的长度（总词数）
+- $\text{avgdl}$：语料库中文档的平均长度
+- $k_1$、$b$：可调参数（通常 $k_1 = 1.2$, $b = 0.75$）
+
+$$
+\text{IDF}(t) = \log\left( \frac{N - n(t) + 0.5}{n(t) + 0.5} + 1 \right)
+$$
+
+| 特性         | TF-IDF | BM25                     |
+| ------------ | ------ | ------------------------ |
+| 考虑文档长度 | 否     | 是                       |
+| 词频增长趋势 | 线性   | 饱和型（非线性）         |
+| 排序效果     | 一般   | 更好（用于实际搜索引擎） |
+
+## 自定义评分
+
+实现相关性计算时，算法提供了一个可变参数 boost，从而帮助实现自定义评分
+
+自定义评分的核心是通过修改评分来修改文档相关性，在最前面的位置返回用户最期望的结果。其策略包含
+
+-   indices_boost：索引层面修改相关性
+-   boosting：修改文档相关性
+-   negative_boost：降低相关性
+-   function_score： 自定义评分
+-   rescore_query：查询后二次打分
+
+### indices_boost
+
+这种方式能在跨多个索引搜索时为每个索引配置不同的级别。所以它适用于**索引**级别调整评分
+
+```json
+POST my_index_100*/_search
+{
+    "query": {
+        "term": {
+            "subject.keyword": {
+                "value": "subject 1"
+            }
+        }
+    },
+    "indices_boost": [
+        {
+            "my_index_100a": 1.5
+        },
+        {
+            "my_index_100b": 1.2
+        },
+        {
+            "my_index_100c": 1
+        }
+    ]
+｝
+```
+
+### boosting
+
+boosting 可在查询时修改文档的相关度。boosting 值所在范围不同，含义也不同
+
+-   boosting 默认值为 1
+-   若 boosting 值为 0~1，如 0.2，代表降低评分
+-   若 boosting 值 ＞1，如 1.5，则代表提升评分
+
+适用于某些特定的查询场景，用户可以自定义修改满足某个查询条件的结果评分
+
+```json
+GET /blogs/_search
+{
+    "query": {
+        "bool": {
+            "should": [
+                {
+                    "match": {
+                        "title": {
+                            "query": "apple,ipad",
+                            "boost": 4
+                        }
+                    }
+                },
+                {
+                    "match": {
+                        "content": {
+                            "query": "apple,ipad"
+                        }
+                    }
+                }
+            ]
+        }
+    }
+}
+
+```
+
+### negative_boost
+
+若对某些返回结果不满意，但又不想将其排除（must_not），则可以考虑采用 negative_boost 的方式。
+
+原理说明如下：
+
+-   ﻿﻿negative_boost 仅对查询中定义为 negative 的部分生效。
+-   ﻿﻿计算评分时，不修改 boosting 部分评分，而 negative 部分的评分则乘以 negative_boost 的值。
+-   ﻿﻿negative_boost 取值为 0~1.0，如 0.3
+
+```json
+GET /news/_search
+{
+    "query": {
+        "boosting": {
+            "positive": {
+                "match": {
+                    "content": "apple"
+                }
+            },
+            "negative": {
+                "match": {
+                    "content": "pie"
+                }
+            },
+            "negative_boost": 0.2
+        }
+    }
+}
+```
+
+### function_score
+
+支持用户自定义一个或多个查询语句及脚本，达到精细化控制评分的目的，以对搜索结果进行高度个性化的排序设置。适用于需进行复杂查询的自定义评分业务场景
+
+```json
+POST /products/_search
+{
+    "query": {
+        "function_score": {
+            "query": {
+                "match_all": {}
+            },
+            "script_score": {
+                "script": {
+                    # 原始分数 *（销量 + 浏览人数）
+                    "source": "_score * (doc['sales'].value + doc['visitors'].value)"
+                }
+            }
+        }
+    }
+}
+```
+
+### rescore_query
+
+二次评分是指重新计算查询所返回的结果文档中指定文档的得分
+
+ElasticSearch 会截取查询返回的前 N 条结果，并使用预定义的二次评分方法来重新计算其得分。但对全部有序的结果集进行重新排序的话，开销势必很大，使用 rescore_query 可以只对结果集的子集进行处理。该方式适用于对查询语句的结果不满意，需要重新打分的场景
+
+```json
+# 查询 content 字段中包含”实战“的文档，权重为0.7
+# 并对文档中 title 为 MySQL 的文档增加评分，权重为1.2
+# window_size 为 50，表示取分片结果的前 50 进行重新算
+GET /books/_search
+{
+    "query": {
+        "match": {
+            "content": "实战"
+        }
+    },
+    "rescore": {
+        "query": {
+            "rescore_query": {
+                "match": {
+                    "title": "MySQL"
+                }
+            },
+            "query_weight": 0.7,
+            "rescore_query_weight": 1.2
+        },
+        "window_size": 50
+    }
+}
+```
+
+## 多字段搜索
+
+优化方案
+
+-    最佳字段（Best Fields）：多个字段中返回评分最高的
+
+当字段之间相互竞争，又相互关联。例如，对于博客的 title 和 body 这样的字段，评分来自最匹配字段
+
+-   多数字段（Most Fields）：匹配多个字段，返回各个字段评分之和
+
+处理英文内容时的一种常见的手段是，在主字段（English Analyzer），抽取词干，加入同义词，以匹配更多的文档。相同的文本，加入子字段（Standard Analyzer），以提供更加精确的匹配。其他字段作为匹配文档提高相关度的信号，匹配字段越多则越好
+
+-   混合字段（Cross Fields）：跨字段匹配，待查询内容在多个字段中都显示
+
+对于某些实体，例如人名，地址，图书信息。需要在多个字段中确定信息，单个字段只能作为整体的一部分。希望在任何这些列出的字段中找到尽可能多的词
+
+### 最佳字段
+
+将任何与任一查询匹配的文档作为结果返回，采用字段上最匹配的评分作为最终评分返回
+
+1.   使用 dis_max 查询：取多字段匹配中最高分数作为文档的匹配分数
+
+```json
+POST /blogs/_search
+{
+    "query": {
+        "dis_max": {
+            "queries": [
+                {
+                    "match": {
+                        "title": "Brown fox"
+                    }
+                },
+                {
+                    "match": {
+                        "body": "Brown fox"
+                    }
+                }
+            ]
+        }
+    }
+}
+```
+
+这种方法还可以通过 tie_breaker 参数进行调整
+
+tie_breaker 是一个介于 0-1 之间的浮点数。0 代表使用最佳匹配；1 代表所有语句同等重要
+
+1.  ﻿﻿﻿获得最佳匹配语句的评分 _score
+2.  ﻿﻿﻿将其他匹配语句的评分与 tie_breaker 相乘
+3.  ﻿﻿﻿对以上评分求和并规范化
+
+即最终得分 = 最佳匹配字段 + 其他匹配字段 * tie_breaker
+
+2.   使用 best_fields 查询：与 dis_max 查询功能类似，但更简洁
+
+```json
+POST /blogs/_search
+{
+    "query": {
+        "multi_match": {
+            "type": "best_fields",
+            "query": "Brown fox",
+            "fields": ["title", "body"],
+            "tie_breaker": 0.2
+        }
+    }
+}
+```
+
+### 多数字段
+
+获取全部匹配字段的累计得分，等价于 bool should 查询
+
+```json
+GET /employee/_search
+{
+    "query": {
+        "multi_match": {
+            "query": "elasticsearch beginner 湖北省 开封市",
+            "type": "most_fields",
+            "fields": [
+                "content",
+                "address"
+            ]
+        }
+    }
+}
+```
+
+### 混合字段
+
+搜索内容在多个字段中都显示，类似于 bool + dis_max 组合
+
+```json
+GET /address/_search
+{
+    "query": {
+        "multi_match": {
+            "query": "湖南常德",
+            "type": "cross_fields",
+            "operator": "and",
+            "fields": ["province", "city"]
+        }
+    }
+}
+```
+
+另一种解决方案是添加数据时使用 copy_to 参数，其允许将多个字段的值复制到组字段中，然后可以将其作为单个字段进行查询
+
+```json
+PUT /address
+{
+    "mappings": {
+        "properties": {
+            "province": {
+                "type": "keyword",
+                "copy_to": "full_address"
+            },
+            "city": {
+                "type": "text",
+                "copy_to": "full_address"
+            }
+        }
+    },
+    "settings": {
+        "index": {
+            "analysis.analyzer.default.type": "ik_max_word"
+        }
+    }
+}
+```
+
+与 copy_to 相比，cross_fields 可以在搜索时为单个字段提升权重，并且 copy_to 需要额外的存储空间
+
+# 聚合
+
