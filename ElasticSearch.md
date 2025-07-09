@@ -18,6 +18,330 @@ ElasticSearch 是一个开源的分布式搜索和数据分析引擎，能达到
 
 倒排索引：在一个文档集合中，每个文档都可视为一个词语的集合，倒排索引则是将词语映射到包含这个词语的文档的数据结构
 
+**索引**：在使用传统的关系型数据库时，如果对数据有存取和更新操作，需要建立一个数据库。相应地，在 ES 中则需要建立索引。用户的数据新增、搜索和更新等操作的对象全部对应索引。但是，ES 中的索引和 Lucene 中的索引不是一一对应的。ES 中的一个索引对应一个或多个 Lucene 索引，这是由其分布式的设计方案决定的
+
+**文档**：在使用传统的关系型数据库时，需要把数据封装成数据库中的一条记录，而在 ES 中对应的则是文档。ES的文档中可以有一个或多个字段，每个字段可以是各种类型。用户对数据操作的最细粒度对象就是文档。ES 文档操作使用了版本的概念，即文档的初始版本为 1，每次的写操作会把文档的版本加 1，每次使用文档时，ES 返回给用户的是最新版本的文档。另外，为了减轻集群负载和提升效率，ES提供了文档的批量索引、更新和删除功能
+
+**字段**：一个文档可以包含一个或多个字段，每个字段都有一个类型与其对应。除了常用的数据类型（如字符串型、文本型和数值型）外，ES 还提供了多种数据类型，如数组类型、经纬度类型和 IP 地址类型等。ES 对不同类型的字段可以支持不同的搜索功能。例如，当使用文本类型的数据时，可以按照某种分词方式对数据进行搜索，并且可以设定搜索后的打分因子来影响最终的排序。再如，使用经纬度的数据时，ES 可以搜索某个地点附近的文档，也可以查询地理围栏内的文档。在排序函数的使用上，ES也可以基于某个地点按照衰减函数进行排序
+
+**映射**：建立索引时需要定义文档的数据结构，这种结构叫作映射。在映射中，文档的字段类型一旦设定后就不能更改。因为字段类型在定义后，ES 已经针对定义的类型建立了特定的索引结构，这种结构不能更改。借助映射可以给文档新增字段。另外，ES 还提供了自动映射功能，即在添加数据时，如果该字段没有定义类型，ES 会根据用户提供的该字段的真实数据来猜测可能的类型，从而自动进行字段类型的定义
+
+**集群和节点**：在分布式系统中，为了完成海量数据的存储、计算并提升系统的高可用性，需要多台计算机集成在一起协作，这种形式被称为集群。这些集群中的每台计算机叫作节点。ES 集群的节点个数不受限制，用户可以根据需求增加计算机对搜索服务进行扩展
+
+**分片**：在分布式系统中，为了能存储和计算海量的数据，会先对数据进行切分，然后再将它们存储到多台计算机中。这样不仅能分担集群的存储和计算压力，而且在该架构基础上进一步优化，还可以提升系统中数据的高可用性。在 ES 中，一个分片对应的就是一个 Lucene 索引，每个分片可以设置多个副分片，这样当主分片所在的计算机因为发生故障而离线时，副分片会充当主分片继续服务。索引的分片个数只能设置一次，之后不能更改。在默认情况下，ES 的每个索引设置为 5 个分片
+
+**副分片**：为了提升系统索引数据的高可用性并减轻集群搜索的负载，可以启用分片的副本，该副本叫作副分片，而原有分片叫作主分片。在一个索引中，主分片的副分片个数是没有限制的，用户可以按需设定。在默认情况下，ES 不会为索引的分片开启副分片，用户需要手动设置。副分片的个数设定后，也可以进行更改。一个分片的主分片和副分片分别存储在不同的计算机上。在极端情况下，当只有一个节点时，如果索引的副分片个数设置大于 1，则系统只分配主分片，而不会分配副分片
+
+**DSL**：ES 使用 DSL（Domain Specific Language，领域特定语言），来定义查询。与编程语言不同，DSL是在特定领域解决特定任务的语言，它可以有多种表达形式，如我们常见的 HTML、CSS、SQL 等都属于 DSL。ES 中的 DSL 采用 JSON 进行表达，相应地，ES 也将响应客户端请求的返回数据封装成了 JSON 形式。这样不仅可以简单明了地表达请求/响应内容，而且还屏蔽了各种编程语言之间数据通信的差异
+
+## 与关系型数据库的对比
+
+1.   **索引方式**：传统关系型数据采用 B-Tree 或 B+-Tree 结构，而 ES 使用倒排索引。两种不同的数据索引方式决定了这两种产品在某些场景中性能和速度的差异
+2.   **事务支持**：事务是关系型数据库的核心组成模块，而 ES 时不支持事务的。ES 更新文档时，先读取文档再进行修改，然后再为文档重新建立索引。如果同一个文档同时有多个并发请求，则极有可能会丢失某个更新操作。为了解决这个问题，ES 使用了**乐观锁**，即假定冲突是不会发生的，不阻塞当前数据的更新操作，每次更新会增加当前文档的版本号，最新的数据由文档的最新版本来决定，这种机制就决定了 ES 没有事务管理
+3.   **SQL 和 DSL**：SQL 是关系型数据库使用的语言，主要是因为 SQL 查询的逻辑比较简单和直接，一般是大小、相等之类的比较运算，以及逻辑与、或、非的关系运算。ES 不仅包含上述运算，而且支持文本搜索、地理位置搜索等复杂数据的搜索，因此 ES 使用 DSL 查询进行请求通信。虽然ES的高版本也开始支持 SQL 查询，但若需要完成比较复杂的数据搜索需求，使用 DSL 查询会更加方便快捷
+4.   **扩展方式**：关系型数据库的扩展需要借助第三方组件完成分库分表（按照某个 ID 取模将数据打散后分散到不同的数据节点中，借此来分摊集群的压力）的支持，而 ES 本身就是支持分片的，只要初期对分片个数进行了合理设置，后期不需要对扩展过分担心
+5.   **查询速度**：关系型数据库的查询速度会随着数据量的增长越来越慢（即使通过索引进行优化），而 ES 可以支持全字段建立索引，查询速度并不会变慢
+6.   **实时性**：关系型数据库存储和查询数据基本上是实时的，即单条数据写入之后可以立即查询。为了提高数据写入的性能，ES 在内存和磁盘之间增加了一层系统缓存。ES 响应写入数据的请求后，会先将数据存储在内存中，此时该数据还不能被搜索到，当内存中数据刷到系统缓存后，才能被搜索到
+
+## 架构原理
+
+### 节点
+
+按照职责可以分为 master 节点、数据节点和协调节点
+
+-   master 节点负责维护整个集群的相关工作，管理集群的变更，如创建/删除索引、节点健康状态监测、节点上/下线等。一个集群中只有一个节点可以成为 master 节点，但是可以有一个或多个节点参与 master 节点的选举
+-   数据节点主要负责索引数据的保存工作，也执行数据的其他操作，如文档的删除、修改和查询操作
+-   协调节点与客户端进行沟通，其生命周期是和一个单独的请求相关的，即当客户端向集群中的某个节点发起请求时，此时该节点被称为当前请求的协调节点；当它将响应结果返回给客户端后，该协调节点的生命周期就结束了
+
+### 分片
+
+ES 为了支持分布式搜索，会把数据按照分片进行切分。一个索引由一个或者多个分片构成，并且每个分片有 0 个甚至多个副分片。多个分片分布在不同的节点中，通过这种分布式结构提升了分片数据的高可用性和服务的高并发支持
+
+**高可用**：集群中的索引主分片和副分片在不同的计算机上，如果某个主分片所在的节点宕机，则原有的某个副分片会提升为主分片继续对外进行服务
+
+**高并发**：当客户端对某个索引的请求被分发到ES的协调节点时，协调节点会将请求进行转发，转发的对象是包含这个索引的所有分片的部分节点。协调节点中有一份分片-节点路由表，该表主要存放分片和节点的对应关系。协调节点采用轮询算法，选取该索引的主/副分片所在的节点进行请求转发。一个索引的主分片设定后就不能再修改，如果想继续提升索引的并发性能，则可以增加索引的副分片个数，此时协调节点会将这些副分片加入轮询算法中
+
+### 文档读写
+
+当 ES 协调节点接收到来自客户端对某个索引的写入文档请求时，该节点会根据一定的路由算法将该文档映射到某个主分片上，然后将请求转发到该分片所在的节点。完成数据的存储后，该节点会将请求转发给该分片的其他副分片所在的节点，直到**所有副分片节点全部完成写入**，ES 协调节点向客户端报告写入成功
+
+当 ES 协调节点接收到来自客户端的获取某个索引的某文档的请求时，协调节点会找到该文档所在的所有分片，然后根据轮询算法在主/副分片中选择一个分片并将请求转发给该分片所在的节点，该节点会将目标数据发送给协调节点，协调节点再将数据返回给客户端
+
+## 应用场景
+
+1.   **搜索引擎**：创建索引时，业务系统模块把数据存储到数据库中，第三方数据同步模块（如 Canal）负责将数据库中的数据按照业务需求同步到 ES 中。搜索时，前端应用先向搜索模块发起搜索请求，然后搜索模块组织搜索 DSL 向 ES 发起请求，ES 响应搜索模块的请求开始搜索，并将搜索到的商品信息（如名称、价格、地理位置等）进行封装，然后把数据传送给搜索模块，进而数据再由搜索模块传递到前端进行展现。较典型的应用领域是垂直搜索，如电商搜索、地图搜索、新闻搜索等各类站内搜索
+2.   **推荐系统**：ES 在高版本中引入了高维向量的数据类型。可以把推荐模型算法计算的商品和用户向量存储到 ES 索引中，当实时请求时，加载用户向量并使用 ES 的 Script Score 进行查询，使每个文档最终的排序分值等于当前用户向量与当前文档向量的相似度。为同时满足实时向量计算和实时数据过滤的需求，可以在 Script Score 查询中添加 filter（即过滤条件，如库存、上下架状态等）
+3.   **二级索引**：对于强事务性的数据，需要将其存储在关系型数据库中，如果还需要使用任意组合字段进行查询，或者按照某些文本字段进行搜索且这些字段是弱事务性的，那么可以考虑使用 ES 作为二级索引
+4.   **日志分析**：ES 具有很强的查询能力，支持任意字段的各种组合查询，同时它又具有很强大的数据统计和分析能力，因此也可以当作数据分析引擎。ES 官方提供的 ELK（Elasticsearch + Logstash + Kibana）全家桶可以完成日志采集、索引创建再到可视化的数据分析等工作，使用户可以 0 代码完成搭建工作。ES 支持的日志分析类型可以是多种多样的，生产中的用户行为日志、Web 容器日志、接口调用日志及数据库日志等都可以通过 ELK 进行分析
+
+# 客户端
+
+## Kibana
+
+Kibana 是 ELK 家族中一个开源、免费的可视化数据搜索和分析平台。借助 Kibana，用户不需要编码就可以将 ES 中分析的结果进行可视化呈现，如以常用的饼图、柱状图和时序图等方式呈现。除了可视化数据分析功能，Kibana 还提供了 Dev Tools，它是一款可以与 ES 进行交互式请求的工具，可以借助它进行 DSL 调试
+
+## Jest 客户端
+
+JestClient 是一款基于 HTTP 实现的 ES 客户端，在 RestHighLevelClient 出现之前，它填补了 ES 缺少 HTTP REST 接口客户端的空白。JestClient 具有一定的 ES 服务端版本兼容性，支持数据的同步和异步操作，同时，它也提供了索引时和搜索结果的 POJO 映射机制，即 OR-Mapping 功能
+
+需要使用的依赖
+
+```xml
+<dependencies> 
+    <!-- Spring Boot Web依赖--> 
+    <dependency> 
+        <groupId>org.springframework.boot</groupId> 
+        <artifactId>spring-boot-starter-web</artifactId> 
+    </dependency> 
+    <!--Jest依赖--> 
+    <dependency> 
+        <groupId>io.searchbox</groupId> 
+        <artifactId>jest</artifactId> 
+        <version>6.3.1</version> 
+    </dependency> 
+    <!--简化开发组件Lombok--> 
+    <dependency> 
+        <groupId>org.projectlombok</groupId> 
+         <artifactId>lombok</artifactId> 
+    </dependency> 
+    <!--ES依赖--> 
+    <dependency> 
+        <groupId>org.elasticsearch</groupId> 
+        <artifactId>elasticsearch</artifactId> 
+        <version>7.10.2</version> 
+    </dependency> 
+</dependencies>
+```
+
+注意：在项目启动时，Jest 并不会连接 ES，只有在调用 `execute()` 方法时 Jest 才开始进行连接
+
+```java
+import io.searchbox.client.JestClient; 
+import io.searchbox.client.JestResult; 
+import io.searchbox.core.Search; 
+import org.elasticsearch.index.query.MatchQueryBuilder; 
+import org.elasticsearch.index.query.QueryBuilders; 
+import org.elasticsearch.search.builder.SearchSourceBuilder; 
+import org.springframework.beans.factory.annotation.Autowired; 
+import org.springframework.stereotype.Service; 
+import java.util.List; 
+ 
+@Service 
+public class EsService { 
+    @Autowired 
+    JestClient jestClient; 
+    public  List<Hotel> getHotelFromTitle(String keyword){ 
+        MatchQueryBuilder matchQueryBuilder=QueryBuilders.matchQuery 
+("title",keyword);       //match搜索 
+        SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder(); 
+        searchSourceBuilder.query(matchQueryBuilder); 
+        Search search=new Search.Builder(searchSourceBuilder.toString()). 
+addIndex("hotel").build();       //创建搜索请求 
+        try{ 
+            JestResult jestResult=jestClient.execute(search); //执行搜索 
+            if(jestResult.isSucceeded()){   //判断搜索是否成功 
+                //将结果封装到Hotel类型的List中 
+                return jestResult.getSourceAsObjectList(Hotel.class); 
+            } 
+        }catch (Exception e){ 
+            e.printStackTrace(); 
+        } 
+        return null; 
+    } 
+}
+```
+
+## Java 客户端
+
+ES 和客户端的通信通过 HTTP 进行，用户可以使用任意语言完成搜索。此外，ES 提供了 Java、Python、Ruby、PHP 和 Go 等多种语言的 API，从客户端连接到搜索 DSL 构建，再到搜索结果的解析，使用这些 API 可以更好地完成搜索
+
+Java 客户端分为低级客户端和高级客户端两种。低级客户端兼容所有版本的 ES，但其需要提供 JSON 字符串，因此这种开发方式比较低效。高级客户端是基于低级客户端开发出来的，屏蔽了底层技术，使用户可以更专注于搜索业务，这是官方推荐的开发方式
+
+需要使用的依赖
+
+```xml
+<dependencies>
+        <!-- Spring Boot Web依赖 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <!-- ES客户端依赖 -->
+        <dependency>
+            <groupId>org.elasticsearch.client</groupId>
+            <artifactId>elasticsearch-rest-high-level-client</artifactId>
+            <version>7.10.2</version>
+        </dependency>
+
+        <!-- ES依赖 -->
+        <dependency>
+            <groupId>org.elasticsearch</groupId>
+            <artifactId>elasticsearch</artifactId>
+            <version>7.10.2</version>
+        </dependency>
+
+        <!-- 使用Lombok简化开发 -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+</dependencies>
+```
+
+实现带验证的 Java 客户端
+
+```java
+import org.apache.http.HttpHost;
+import org.apache.http.auth.AuthScope;
+import org.apache.http.auth.UsernamePasswordCredentials;
+import org.apache.http.client.CredentialsProvider;
+import org.apache.http.impl.client.BasicCredentialsProvider;
+import org.apache.http.impl.nio.client.HttpAsyncClientBuilder;
+import org.elasticsearch.client.RestClient;
+import org.elasticsearch.client.RestClientBuilder;
+import org.elasticsearch.client.RestHighLevelClient;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
+import org.springframework.stereotype.Component;
+
+import java.util.Arrays;
+import java.util.Objects;
+
+@Component
+public class EsClient {
+    @Value("${elasticsearch.rest.hosts}")               //读取ES主机+端口配置
+    private String hosts;
+    @Value("${elasticsearch.rest.username}")            //读取ES用户名
+    private String esUser;
+    @Value("${elasticsearch.rest.password}")            //读取ES密码
+    private String esPassword;
+
+    @Bean
+    public RestHighLevelClient initClient1() { 
+        //根据配置文件配置HttpHost数组 
+        HttpHost[] httpHosts = Arrays.stream(hosts.split(",")).map( 
+                host -> { 
+                    //分隔ES服务器的IP和端口 
+                    String[] hostParts = host.split(":"); 
+                    String hostName = hostParts[0]; 
+                    int port = Integer.parseInt(hostParts[1]); 
+                    return new HttpHost(hostName, port, HttpHost.DEFAULT_ 
+SCHEME_NAME); 
+                }).filter(Objects::nonNull).toArray(HttpHost[]::new); 
+        //生成凭证 
+        final CredentialsProvider credentialsProvider = new BasicCredentials 
+Provider(); 
+        credentialsProvider.setCredentials(AuthScope.ANY, 
+                //明文凭证 
+                new UsernamePasswordCredentials(esUser, esPassword)); 
+        //返回带验证的客户端 
+        return new RestHighLevelClient( 
+                RestClient.builder( 
+                        httpHosts) 
+                        .setHttpClientConfigCallback(new RestClientBuilder. 
+HttpClientConfigCallback() { 
+                            public HttpAsyncClientBuilder customizeHttpClient 
+(HttpAsyncClientBuilder httpClientBuilder) { 
+                                httpClientBuilder.disableAuthCaching(); 
+                                return httpClientBuilder.setDefaultCredentials 
+Provider(credentialsProvider); 
+                            } 
+                        })); 
+    } 
+}
+```
+
+使用客户端实现 Service
+
+```java
+import org.elasticsearch.action.search.SearchRequest;
+import org.elasticsearch.action.search.SearchResponse;
+import org.elasticsearch.client.RequestOptions;
+import org.elasticsearch.client.RestHighLevelClient;
+import org.elasticsearch.index.query.QueryBuilders;
+import org.elasticsearch.rest.RestStatus;
+import org.elasticsearch.search.SearchHit;
+import org.elasticsearch.search.SearchHits;
+import org.elasticsearch.search.builder.SearchSourceBuilder;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
+@Service
+public class EsService {
+    @Autowired
+    RestHighLevelClient client;
+
+    public List<Hotel> getHotelFromTitle(String keyword){
+        SearchRequest searchRequest=new SearchRequest("hotel");//客户端请求
+        SearchSourceBuilder searchSourceBuilder=new SearchSourceBuilder();
+        //构建query
+        searchSourceBuilder.query(QueryBuilders.matchQuery("title",keyword));
+        searchRequest.source(searchSourceBuilder);
+        List<Hotel> resultList=new ArrayList<Hotel>();
+        try{
+            SearchResponse searchResponse=client.search(searchRequest, 
+RequestOptions.DEFAULT);
+            RestStatus status = searchResponse.status();
+            if(status!=RestStatus.OK){
+                return null;
+            }
+            SearchHits searchHits=searchResponse.getHits();
+            for(SearchHit searchHit:searchHits){
+                // Hotel 是一个数据类
+                Hotel hotel=new Hotel();
+                hotel.setId(searchHit.getId());                                 //文档_id
+                hotel.setIndex(searchHit.getIndex());                           //索引名称
+                hotel.setScore(searchHit.getScore());                           //文档得分
+
+                //转换为Map
+                Map<String, Object> dataMap= searchHit.getSourceAsMap();
+                hotel.setTitle((String) dataMap.get("title"));  //设置标题
+                hotel.setCity((String) dataMap.get("city"));    //设置城市
+                hotel.setPrice((Double) dataMap.get("price"));  //设置价格
+                resultList.add(hotel);
+            }
+            return resultList;
+        }catch (Exception e){
+            e.printStackTrace();
+        }
+        return null;
+    }
+}
+```
+
+## Spring Boot 客户端
+
+Spring Data Elasticsearch 是 Spring Boot 套件中的一个组件，在Spring Boot 中连接 ES 可以使用 Spring Data Elasticsearch。Spring Data Elasticsearch 是 Spring Data 项目的一部分，该项目致力于**提供一致的基于 Spring 的数据查询和存储编程模型**
+
+Spring Data Elasticsearch 封装了创建客户端的逻辑并与服务端保持**长连接**，并且通过对 Repository 接口的自动实现，Spring Data Elasticsearch 可以直接通过方法名的语义实现查询功能，如常见的 findBy + 字段名 + 操作。此外，Spring Data Elasticsearch 还具有 OR-Mapping 功能，即查询到数据后，可以将数据直接封装到自定义的 POJO 中，方便后续对数据进行加工处理
+
+需要使用的依赖
+
+```xml
+<dependencies>
+    <!-- Spring Boot Web依赖-->
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    <!--Spring Data Elasticsearch依赖-->
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-data-elasticsearch</artifactId>
+    </dependency>
+    <!--使用Lombok简化开发-->
+    <dependency>
+        <groupId>org.projectlombok</groupId>
+        <artifactId>lombok</artifactId>
+    </dependency>
+</dependencies>
+```
+
 # 索引
 
 使用场景
@@ -79,6 +403,20 @@ PUT /index_name
 
 `DELETE /index_name`
 
+### 关闭索引
+
+索引在某一时间内属于冷数据或归档数据，这时可以使用索引的关闭功能
+
+`POST /index_name/_close`
+
+当索引关闭时，只能通过 ES 的 API 或者监控工具看到索引的元数据，但不能写入和搜索数据
+
+### 打开索引
+
+索引关闭后，需要开启读写服务时可以将其设置为打开状态
+
+`POST /index_name/_open`
+
 ### 查询索引
 
 `GET /index_name`
@@ -130,6 +468,7 @@ PUT /index_name/_mapping
 
 1.   对相同索引别名的物理索引建议有一致的映射，以提升检索效率
 2.   推荐充分发挥索引别名在检索方面的优势，但在写入和更新时还得使用物理索引
+3.   当一个别名指向多个索引时，写入数据的请求不可以指向这个别名，除非在设置时指定了数据写入转发的索引对象
 
 ### 添加别名
 
@@ -158,12 +497,96 @@ POST /_aliases
     {
         "add": {
             "index": "myindex",
-            "alias": "myindex_alias"
+            "alias": "myindex_alias",
+            # 设置写入转发对象
+            "is_write_index": true
         }
     }
     ]
 }
 ```
+
+# 映射操作
+
+在使用数据之前，需要构建数据的组织结构。这种组织结构在关系型数据库中叫作表结构，在 ES 中叫作映射
+
+作为无模式搜索引擎，ES 可以在数据写入时猜测数据类型，从而自动创建映射。但有时 ES 创建的映射中的数据类型和目标类型可能不一致，当需要严格控制数据类型时，还是需要用户手动创建映射
+
+## 查看映射
+
+`GET /index_name/_mapping`
+
+返回信息和建立该索引时信息保持一致
+
+## 扩展映射
+
+映射中的字段类型是不能修改的，但字段可以扩展。最常见的扩展方式是增加字段、为 object 类型的数据新增属性
+
+```json
+# 为索引增加 tag 字段
+POST /index_name/_mapping
+{
+    "properties": {
+        "tag": {
+            "type": "keyword"
+        }
+    }
+}
+```
+
+## 基本数据类型
+
+1.   keyword：不进行切分的字符串类型，一般用于文档的过滤、排序和聚合。查询时一般使用 term 查询
+2.   text：可进行切分的字符串类型。搜索时使用 match 搜索
+3.   数值：ES 支持 long、integer、short、byte、double、float、half_float、scaled_float 和 unsigned_long。为节约存储空间并提升搜索和索引的效率，在满足需求的情况下尽可能选择范围小的数据类型，可用于文档的过滤、排序和聚合。搜索时一般使用 term 或范围搜索
+4.   布尔：用于二值表示，写入或查询数据时，使用 true 和 false。查询时使用 term 查询
+5.   日期：ES 中存储日期使用标准的 UTC 格式。一般使用如下形式表示日期类型数据：1）格式化的日期字符串；2）毫秒级的长整型，表示从1970年1月1日0点到现在的毫秒数；3）秒级别的整型，表示从1970年1月1日0点到现在的秒数。搜索时一般使用范围查询
+
+## 复杂数据类型
+
+1.   数组：ES 数组没有定义方式，其使用方式是开箱即用的，即无须事先声明，在写入时把数据用中括号 `[]` 括起来，由 ES 对该字段完成定义。如果事先已经定义了字段类型，在写数据时以数组形式写入，ES 也会将该类型转为数组。数组字段的搜索类型取决于数组元素
+2.   对象：和数组类型一样，对象类型也不用事先定义，在写入文档的时候 ES 会自动识别并转换为对象类型
+3.   地理：该类型的定义需要在 mapping 中指定目标字段的数据类型为 geo_point 类型
+
+## 动态映射
+
+当字段没有定义时，ES 可以根据写入的数据自动定义该字段的类型，这种机制叫作动态映射。数组和对象类型字段就使用了动态映射机制
+
+## 多字段
+
+针对同一个字段，有时需要不同的数据类型，这通常表现在为了不同的目的以不同的方式索引相同的字段
+
+例如，在订单搜索系统中，既希望能够按照用户姓名进行搜索，又希望按照姓氏进行排列，可以在 mapping 定义中将姓名字段先后定义为 text 类型和 keyword 类型，其中，keyword 类型的字段叫作子字段，这样 ES 在建立索引时会将姓名字段建立两份索引，即 text 类型的索引和 keyword 类型的索引
+
+```json
+PUT /order 
+{ 
+  	"mappings": { 
+        "properties": { 
+            "order_id": {     // 定义order_id字段类型为keyword
+                "type": "keyword" 
+              }, 
+              "user_id": {     // 定义user_id字段类型为keyword 
+                "type": "keyword" 
+              }, 
+              "user_name": {    // 定义user_name字段类型为text 
+            	"type": "text", 
+                "fields": {     // 定义user_name多字段 
+                  // 定义user_name字段的子字段user_name_keyword，并定义其类型为keyword 
+                  "user_name_keyword": { 
+                    "type": "keyword" 
+                  }
+                }
+              }, 
+              "hotel_id": {     // 定义hotel_id字段类型为keyword 
+                "type": "keyword" 
+              }
+        }
+    }
+}
+```
+
+
 
 # 文档操作
 
