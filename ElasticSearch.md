@@ -1229,21 +1229,6 @@ public void matchAllSearch() {
 
 可以在 `match_all` 查询中添加额外的参数来控制搜索结果的显示，例如设置返回的文档数量（size）、开始返回的文档位置（from）、排序规则（sort）以及选择返回哪些字段（_source）
 
-返回索引中前 10 个文档，按照文档评分进行排序
-
-```json
-GET /<index_name>/_search
-{
-    "query": {
-        "match_all": {}
-    },
-    "size": 10,
-    "sort": [
-        {"_score": {"order": "desc"}}
-    ]
-}
-```
-
 `_source` 示例
 
 ```json
@@ -1314,6 +1299,121 @@ searchRequest.source(searchSourceBuilder);
 ```
 
 注意：ES 不适合**深翻页**，即请求的 from 值很大。当深翻页的请求过多时会增加各个分片所在节点的内存和 CPU 消耗。尤其是协调节点，随着页码的增加和并发请求的增多，该节点需要对这些请求涉及的分片数据进行汇总和排序，过多的数据会导致协调节点资源耗尽而停止服务
+
+### 排序
+
+在默认情况下，ES 对搜索结果是按照相关性降序排序的。有时需要按照某些字段的值进行升序或者降序排序
+
+ES 提供了 sort 子句可以对数据进行排序。使用 sort 子句一般是按照字段信息进行排序，不受相关性影响，而且打分步骤需要耗费一定的硬件资源和时间，因此默认情况下，不对文档进行打分
+
+#### 按普通字段值排序
+
+```json
+// 返回索引中前 10 个文档，按照文档评分进行排序
+GET /<index_name>/_search
+{
+    "query": {
+        "match_all": {}
+    },
+    "size": 10,
+    "sort": [
+        {
+            "_score": {
+                "order": "desc"
+            }
+        }
+    ]
+}
+```
+
+```java
+// Java 示例
+public void commonSort(){  
+    //创建搜索请求 
+    SearchRequest searchRequest = new SearchRequest("hotel"); 
+    SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder(); 
+    //构建match查询 
+    searchSourceBuilder.query(QueryBuilders.matchQuery("title","金都")); 
+    searchRequest.source(searchSourceBuilder);        //设置查询请求 
+    //设置按照价格进行降序排序 
+    searchSourceBuilder.sort("price", SortOrder.DESC); 
+    //设置按照口碑值进行降序排序 
+    searchSourceBuilder.sort("praise", SortOrder.DESC); 
+   printResult(searchRequest);                        //打印搜索结果 
+}
+```
+
+#### 按地理距离排序
+
+使用 geo_distance 查询，配合 sort 可以指定另一种排序规则，即按照文档坐标与指定坐标的距离对结果进行排序
+
+使用时，需要在 sort 内部指定排序名称为 _geo_distance，并指定目的地坐标。除了可以指定升序或者降序排列外，还可以指定排序结果中 sort 子句中的距离的计量单位，默认值为 km
+
+在进行距离计算时，系统默认使用的算法为 arc，该算法的特点是计算精准但是耗费时间较长，用户可以使用 distance_type 参数选择另一种计算速度快但经度略差的算法，名称为 plane
+
+```json
+GET /hotel/_search 
+{ 
+    "_source": [                         //返回部分字段 
+        "title", 
+        "city", 
+        "location" 
+    ], 
+    "query": { 
+        "geo_distance": { 
+              "distance": "5km",             //设置地理范围为5km 
+              "location": {                  //设置中心点坐标 
+                    "lat": "39.915143", 
+                    "lon": "116.4039" 
+              } 
+        } 
+    }, 
+    "sort": [                           //设置排序逻辑 
+    { 
+        "_geo_distance": { 
+            "location": {                //设置排序的中心点坐标 
+                  "lat": "39.915143", 
+                  "lon": "116.4039" 
+            }, 
+            "order": "asc",             //按距离由近到远进行排序 
+            "unit": "km",               //排序所使用的距离的计量单位 
+            "distance_type": "plane"  //排序所使用的距离计算算法 
+        } 
+    } 
+    ] 
+}
+```
+
+```java
+// Java 示例
+public void geoDistanceSearchSort() throws IOException {  
+    //创建搜索请求 
+    SearchRequest searchRequest = new SearchRequest("hotel"); 
+    SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder(); 
+    //创建geo_distance查询，搜索距离中心点5km范围内的酒店 
+    searchSourceBuilder.query(QueryBuilders.geoDistanceQuery("location").distance(5, DistanceUnit.KILOMETERS).point(39.915143, 116.4039)); 
+    //创建geo_distance_sort排序，设定按照与中心点的距离进行升序排序 
+    GeoDistanceSortBuilder geoDistanceSortBuilder = SortBuilders.geoDistanceSort("location", 39.915143, 116.4039).point(39.915143, 116.4039).unit(DistanceUnit.KILOMETERS).order(SortOrder.ASC); 
+    searchSourceBuilder.sort(geoDistanceSortBuilder);  //设置排序规则 
+    searchRequest.source(searchSourceBuilder);         //设置查询 
+    //开始搜索 
+    SearchResponse searchResponse = client.search(searchRequest, RequestOptions.DEFAULT); 
+    SearchHits searchHits = searchResponse.getHits();  //获取搜索结果 
+    System.out.println("search result distance sort:");
+    
+    //开始遍历搜索结果 
+    for (SearchHit searchHit : searchHits) { 
+        //得到酒店距离中心点的距离 
+        double geoDistance = (double) searchHit.getSortValues()[0];
+        //以Map形式获取文档_source内容 
+        Map sourceMap = searchHit.getSourceAsMap(); 
+        Object title = sourceMap.get("title"); 
+        Object city = sourceMap.get("city"); 
+        //打印结果 
+        System.out.println("title=" + title + ",city=" + city + ",geoDistance:" + geoDistance); 
+    }
+}
+```
 
 ## 精确匹配
 
