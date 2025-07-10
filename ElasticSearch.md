@@ -498,7 +498,7 @@ POST /_aliases
         "add": {
             "index": "myindex",
             "alias": "myindex_alias",
-            # 设置写入转发对象
+            // 设置写入转发对象
             "is_write_index": true
         }
     }
@@ -523,7 +523,7 @@ POST /_aliases
 映射中的字段类型是不能修改的，但字段可以扩展。最常见的扩展方式是增加字段、为 object 类型的数据新增属性
 
 ```json
-# 为索引增加 tag 字段
+// 为索引增加 tag 字段
 POST /index_name/_mapping
 {
     "properties": {
@@ -626,6 +626,24 @@ PUT 与 POST 的差异
     -   PUT 请求在更新文档时会替换整个文档的内容，即使是文档中未更改的部分也会被新内容覆盖
     -   POST 请求在更新文档时可以使用 _update API，这样可以只更新文档中的特定字段，而不是替换整个文档
 
+```java
+// Java 创建示例
+public void singleIndexDoc(Map dataMap, String indexName, String indexId) { 
+    IndexRequest indexRequest = new IndexRequest(indexName).id(indexId).source(dataMap);         //构建IndexRequest对象并设置对应的索引和_id字段名称 
+    try { 
+        IndexResponse indexResponse = client.index(indexRequest, RequestOptions.DEFAULT); //执行写入 
+        //通过IndexResponse获取索引名称 
+        String index = indexResponse.getIndex(); 
+        String id = indexResponse.getId();//通过IndexResponse获取文档ID 
+        //通过IndexResponse获取文档版本 
+        Long version = indexResponse.getVersion(); 
+        System.out.println("index=" + index + ", + id + ",version=" + version ); 
+    } catch (Exception e) { 
+    	e.printStackTrace(); 
+    } 
+} 
+```
+
 ### 批量新增
 
 批量操作可以减少网络连接所产生的开销，提升性能
@@ -695,6 +713,35 @@ Elasticsearch的 _bulk API 支持以下四种操作类型：
 
 这些操作可以在单个_bulk APl 调用中对不同的索引进行，而且即使在批量操作中单条操作失败，也不会影响其他操作的执行。返回结果通常包括了每条操作的执行结果，以便客户端能够处理成功或失败的情况
 
+除此之外，还可以使用 Linux 系统的 curl 命令，其支持上传文件，用户可以将批量写入的 JSON 数据保存到文件中，然后使用 curl 命令进行提交
+
+```java
+// Java 示例
+public void bulkIndexDoc(String indexName, String docIdKey, List> recordMapList) { 
+    //构建批量操作BulkRequest对象 
+    BulkRequest bulkRequest = new BulkRequest(indexName); 
+    for (Ma dataMap: recordMapList) { //遍历数据 
+        //获取主键作为ES索引的主键 
+        String docId = dataMap.get(docIdKey).toString();
+        //构建IndexRequest对象
+        IndexRequest indexRequest = new IndexRequest().id(docId).source(dataMap);
+        //添加IndexRequest
+        bulkRequest.add(indexRequest); 
+    }
+    
+    bulkRequest.timeout(TimeValue.timeValueSeconds(5)); //设置超时时间 
+    try { 
+        //执行批量写入
+        BulkResponse bulkResponse = client.bulk(bulkRequest, RequestOptions.DEFAULT);                                      
+        if (bulkResponse.hasFailures()) { //判断执行状态 
+            System.out.println("bulk fail,message:" + bulkResponse.buildFailureMessage()); 
+        }
+    } catch (IOException e) { 
+        e.printStackTrace(); 
+    }
+}
+```
+
 ## 查询文档
 
 根据文档的 ID 查询单个文的标准语法是使用 GET 请求配合文档所在的索引名和文档 ID
@@ -709,6 +756,40 @@ GET /<index_name>/_doc/<document_id>
 GET /<index_name>/_mget
 {
     "ids": ["id1", "id2" , "id3"]
+}
+```
+
+为提升搜索体验，有时需要给前端传递搜索匹配结果的文档条数，即需要对搜索结果进行计数
+
+```json
+GET /<index_name>/_count
+{
+    "query": {
+        "term": {
+            "<field>": {
+               	"value": "<value>"
+            }
+        }
+    }
+}
+```
+
+```java
+public long getCityCount() { 
+    //客户端的count请求 
+    CountRequest countRequest=new CountRequest("hotel"); 
+    //创建搜索builder 
+    SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder();
+    //构建query 
+    searchSourceBuilder.query(new TermQueryBuilder("city","北京")); 
+    countRequest.source(searchSourceBuilder);   //设置查询 
+    try { 
+        CountResponse countResponse=client.count(countRequest,RequestOptions.DEFAULT);                              //执行count 
+        return countResponse.getCount();       //返回count结果 
+    } catch (Exception e) { 
+        e.printStackTrace(); 
+    } 
+    return 0; 
 }
 ```
 
@@ -769,12 +850,55 @@ GET /<index_name>/_search
 }
 ```
 
+### 查询分析
+
+**性能分析**：在使用 ES 的过程中，有的搜索请求的响应可能比较慢，其中大部分的原因是 DSL 的执行逻辑有问题。ES 提供了 profile 功能，该功能详细地列出了搜索时每一个步骤的耗时，可以帮助用户对 DSL 的性能进行剖析
+
+```json
+GET /<index_name>/_search
+{
+    // 打开性能分析
+    "profile": true,
+    "query": {
+        "term": {
+            "<field_name>": {
+                "value": "<exact_value>"
+            }
+        }
+    }
+}
+```
+
+需要注意的是，使用 profile 功能是有资源损耗的，建议用户只在前期调试的时候使用该功能，在生产中不要开启 profile 功能
+
+**评分分析**：在使用搜索引擎时，一般都会涉及排序功能。如果用户不指定按照某个字段进行升序或者降序排列，那么 ES 会使用自己的打分算法对文档进行排序。有时我们需要知道某个文档具体的打分详情，以便于对搜索 DSL 问题展开排查。ES 提供了 explain 功能来帮助使用者查看搜索时的匹配详情
+
+```json
+GET /<index_name>/_explain/<doc_id>
+{
+    "query" : {}
+}
+```
+
 ## 删除文档
 
 ### 删除单个文档
 
 ```json
 DELETE /<index_name>/_doc/<document_id>
+```
+
+```java
+// Java 删除示例
+public void singleDelete(String index, String docId) { 
+    //构建删除请求 
+    DeleteRequest deleteRequest=new DeleteRequest(index,docId); 
+    try { 
+        client.delete(deleteRequest, RequestOptions.DEFAULT);//执行删除 
+    } catch (IOException e) { 
+        e.printStackTrace(); 
+    } 
+}
 ```
 
 ### 批量删除
@@ -811,6 +935,27 @@ DELETE /<index_name>/_doc/<document_id>
      }
      ```
 
+     ```java
+     public void bulkDelete(String index, String docIdKey, List docIdList) {  
+         BulkRequest bulkRequest = new BulkRequest();    //构建BulkRequest对象 
+         for (String docId : docIdList) {            //遍历文档_id列表 
+             //构建删除请求 
+             DeleteRequest deleteRequest=new DeleteRequest(index,docId); 
+             bulkRequest.add(deleteRequest);        //创建UpdateRequest对象 
+         }
+         
+         try { 
+             //执行批量删除
+             BulkResponse bulkResponse = client.bulk(bulkRequest,RequestOptions.DEFAULT); 
+             if (bulkResponse.hasFailures()) {      //判断状态 
+                 System.out.println("bulk fail,message:" + bulkResponse.buildFailureMessage());
+             } 
+         } catch (Exception e) { 
+             e.printStackTrace(); 
+         } 
+     }
+     ```
+
 2.   使用 _delete_by_query API：根据查询条件删除文档
 
      ```json
@@ -818,6 +963,21 @@ DELETE /<index_name>/_doc/<document_id>
      {
          "query": {
              "<query>"
+         }
+     }
+     ```
+     
+     ```java
+     public void deleteByQuery(String index,String city) {  
+         //构建DeleteByQueryRequest对象 
+         DeleteByQueryRequest deleteByQueryRequest=new DeleteByQueryRequest(index); 
+         //设置按照城市查找文档的query 
+         deleteByQueryRequest.setQuery(new TermQueryBuilder("city",city)); 
+         try { 
+             //执行删除命令 
+             client.deleteByQuery(deleteByQueryRequest,RequestOptions.DEFAULT); 
+         } catch (IOException e) { 
+             e.printStackTrace(); 
          }
      }
      ```
@@ -829,11 +989,61 @@ DELETE /<index_name>/_doc/<document_id>
 更新操作通过 _update API 执行，该接口允许部分更新现有文档的字段
 
 ```json
-POST /<index_name/_update/<document_id>
+POST /<index_name>/_update/<document_id>
 {
     "doc": {
         "<field>": "<value>"
     }
+}
+```
+
+```java
+// Java 更新示例
+public void singleUpdate(String indexName, String docIdKey, Map recordMap) { 
+    UpdateRequest updateRequest = new UpdateRequest(indexName, docIdKey); 
+    updateRequest.doc(recordMap); 
+    try { 
+        UpdateResponse updateResponse=client.update(updateRequest, RequestOptions.DEFAULT); 
+        //通过IndexResponse获取索引名称 
+        String index = updateResponse.getIndex(); 
+        //通过IndexResponse获取文档ID 
+        String id = updateResponse.getId(); 
+        //通过IndexResponse获取文档版本 
+        Long version = updateResponse.getVersion(); 
+        System.out.println("index=" + index + ", + id + ", version=" +version); 
+    } catch (IOException e) { 
+        e.printStackTrace(); 
+    } 
+}
+```
+
+除了普通的 update 功能，ES 还提供了 upsert。upsert 是 update 和 insert 的合体字，表示更新/插入数据。如果目标文档存在，则执行更新逻辑；否则执行插入逻辑
+
+```json
+POST /<index_name>/_update/<document_id>
+{
+    "doc": {
+        "<field>": "<value>"
+    },
+    "upsert": {
+        "<field>": "<value>"
+    }
+}
+```
+
+```java
+// Java upsert 示例
+public void singleUpsert(String index, String docIdKey, Map recordMap,Map upRecordMap) { 
+    //构建UpdateRequest 
+    UpdateRequest updateRequest = new UpdateRequest(index, docIdKey); 
+    updateRequest.doc(recordMap);        //设置更新逻辑 
+    updateRequest.upsert(upRecordMap);   //设置插入逻辑 
+    try { 
+        //执行upsert命令 
+        client.update(updateRequest, RequestOptions.DEFAULT); 
+    } catch (IOException e) { 
+        e.printStackTrace(); 
+    } 
 }
 ```
 
@@ -862,6 +1072,28 @@ POST /<index_name/_update/<document_id>
          }
      }
      ```
+     ```java
+    // Java 示例
+    public void bulkUpdate(String index, String docIdKey, List> recordMapList) { 
+        BulkRequest bulkRequest = new BulkRequest();//构建BulkRequest对象 
+        for (Map dataMap : recordMapList) {//遍历数据列表 
+            String docId = dataMap.get(docIdKey).toString(); 
+            dataMap.remove(docId);            //将ID字段从map中删除 
+            //创建UpdateRequest对象 
+            bulkRequest.add(new UpdateRequest(index, docId).doc(dataMap)); 
+        }
+
+        try {
+            //执行批量更新
+            BulkResponse bulkResponse = client.bulk(bulkRequest, RequestOptions.DEFAULT); 
+            if (bulkResponse.hasFailures()) { //判断状态 
+                System.out.println("bulk fail,message:" + bulkResponse.buildFailureMessage()); 
+            } 
+        } catch (Exception e) { 
+            e.printStackTrace(); 
+        } 
+    }
+    ```
 
 2.   使用 _update_by_query API：允许根据查询条件更新多个文档，但这个操作是原子性的
 
@@ -875,6 +1107,22 @@ POST /<index_name/_update/<document_id>
              "source": "ctx._source.field = 'val'" ,
              "lang": "painless"
          }
+     }
+     ```
+     
+     ```java
+     // Java 示例
+     public void updateCityByQuery(String index, String oldCity, String newCity) { 
+         //构建UpdateByQueryRequest对象
+         UpdateByQueryRequest updateByQueryRequest=new UpdateByQueryRequest(index); 
+         //设置按照城市查找文档的query 
+         updateByQueryRequest.setQuery(new TermQueryBuilder("city",oldCity)); 
+         updateByQueryRequest.setScript(new Script("ctx._source['city']= '"+newCity+"';"));      //设置更新城市字段的脚本逻辑 
+         try { 
+             client.updateByQuery(updateByQueryRequest,RequestOptions.DEFAULT);              //执行更新 
+         } catch (IOException e) { 
+             e.printStackTrace(); 
+         } 
      }
      ```
 
@@ -948,6 +1196,37 @@ GET /<index_name>/_search
 }
 ```
 
+```java
+public void printResult(SearchRequest searchRequest) { 
+    try {
+        // 执行搜索
+        SearchResponse searchResponse = client.search(searchRequest, RequestOptions.DEFAULT);
+        SearchHits searchHits = searchResponse.getHits(); //获取搜索结果集 
+        for (SearchHit searchHit : searchHits) {          //遍历搜索结果集 
+            String index = searchHit.getIndex();          //获取索引名称 
+            String id = searchHit.getId();                //获取文档_id 
+            Float score = searchHit.getScore();           //获取得分 
+            String source = searchHit.getSourceAsString(); //获取文档内容 
+            //打印数据 
+            System.out.println("index=" + index + ", + id= " id + "score= " + score + ",source=" + source);
+        }
+    } catch (Exception e) { 
+        e.printStackTrace(); 
+    } 
+}
+
+public void matchAllSearch() { 
+    // 新建搜索请求 
+    SearchRequest searchRequest = new SearchRequest("hotel");  
+    SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder(); 
+    // 新建match_all查询，并设置boost值为2.0
+    MatchAllQueryBuilder matchAllQueryBuilder = QueryBuilders.matchAllQuery().boost(2.0f); 
+    searchSourceBuilder.query(matchAllQueryBuilder); 
+    searchRequest.source(searchSourceBuilder);    //设置查询 
+   printResult(searchRequest);                    //打印结果 
+}
+```
+
 可以在 `match_all` 查询中添加额外的参数来控制搜索结果的显示，例如设置返回的文档数量（size）、开始返回的文档位置（from）、排序规则（sort）以及选择返回哪些字段（_source）
 
 返回索引中前 10 个文档，按照文档评分进行排序
@@ -968,7 +1247,7 @@ GET /<index_name>/_search
 `_source` 示例
 
 ```json
-# 不查看源数据，仅查看元字段
+// 不查看源数据，仅查看元字段
 GET /<index_name>/_search
 {
     "query": {
@@ -977,7 +1256,7 @@ GET /<index_name>/_search
     "_source": false
 }
 
-# 返回指定字段
+// 返回指定字段
 GET /<index_name>/_search
 {
     "query": {
@@ -986,7 +1265,7 @@ GET /<index_name>/_search
     "_source": ["field1", "field2"]
 }
 
-# 返回符合 pattern 的字段，如以 obj. 开头的字段
+// 返回符合 pattern 的字段，如以 obj. 开头的字段
 GET /<index_name>/_search
 {
     "query": {
@@ -995,6 +1274,46 @@ GET /<index_name>/_search
     "_source": "obj.*"
 }
 ```
+
+```java
+// Java 返回指定字段示例，等价于 _source
+SearchRequest searchRequest = new SearchRequest("hotel"); //客户端请求 
+//创建搜索builder 
+SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder(); 
+//构建query 
+searchSourceBuilder.query(new TermQueryBuilder("city","北京")); 
+//设定希望返回的字段数组 
+searchSourceBuilder.fetchSource(new String[]{"title","city"} , null); 
+searchRequest.source(searchSourceBuilder);
+```
+
+使用 `from` 和 `size` 定义搜索位置和每页显示的文档数量，从而实现分页显示。默认情况下，用户最多可以取得 10000 个文档，即 from 为 0 时，size 参数最大为 10000，如果请求超过该值，ES 会返回请求数量过多的错误信息
+
+```json
+GET /<index_name>/_search
+{
+    // 设置起始位置
+    "from": 0,
+    // 设置返回数量
+    "size": 20,
+    "query": {
+        "match_all": {}
+    }
+}
+```
+
+```java
+SearchRequest searchRequest = new SearchRequest("hotel"); //客户端请求 
+//创建搜索的builder 
+SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder(); 
+//构建query 
+searchSourceBuilder.query(new TermQueryBuilder("city","北京")); 
+searchSourceBuilder.from(20);      //设置from参数 
+searchSourceBuilder.size(10);      //设置size参数 
+searchRequest.source(searchSourceBuilder);
+```
+
+注意：ES 不适合**深翻页**，即请求的 from 值很大。当深翻页的请求过多时会增加各个分片所在节点的内存和 CPU 消耗。尤其是协调节点，随着页码的增加和并发请求的增多，该节点需要对这些请求涉及的分片数据进行汇总和排序，过多的数据会导致协调节点资源耗尽而停止服务
 
 ## 精确匹配
 
@@ -1026,14 +1345,28 @@ GET /<index_name>/_search
 }
 ```
 
+```java
+// 日期类型的 term 查询，其余类型查询可通过 API 调用完成
+public void termDateSearch() { 
+    // 创建搜索请求 
+    SearchRequest searchRequest = new SearchRequest("hotel"); 
+    SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder();
+    // 构建term查询
+    searchSourceBuilder.query(QueryBuilders.termQuery("create_time", "20210509160000"));
+    searchRequest.source(searchSourceBuilder);  // 设置查询请求 
+   printResult(searchRequest);                  // 打印搜索结果 
+}
+```
+
 处理多值字段时，term 查询是包含，即查找数组中是否包含匹配项
 
-term 查询对输入不做分词，即会将输入作为一个整体，在倒排索引中查找准确的词项。因此不需要使用相关度算分公式为每个包含该词项的文档进行相关度算分，可以通过 constant_score 将查询转换成一个 filtering，避免算分，并利用缓存，提高性能
+term 查询对输入不做分词，即会将输入作为一个整体，在倒排索引中查找准确的词项。因此不需要使用相关度算分公式为每个包含该词项的文档进行相关度算分，可以通过 constant_score 将查询转换成一个 filtering，避免算分，并利用缓存，提高性能。同理，constant_score 中 boost 参数可以控制命中文档的得分，默认为 1.0
 
 -   ﻿将 query 转成 filter，忽略 TF-IDF 计算，避免相关性算分的开销
 -   ﻿﻿filter 可以有效利用缓存
 
 ```json
+// constant_score 示例
 GET /<index_name>/_search
 {
     "query": {
@@ -1048,6 +1381,21 @@ GET /<index_name>/_search
         }
     }
 }
+```
+
+```java
+// Java constant_score 示例
+public void constantScoreSearch() {     
+    //新建搜索请求 
+    SearchRequest searchRequest = new SearchRequest("hotel"); 
+    SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder(); 
+    //构建设施包含“停车场”的constant score查询 
+    ConstantScoreQueryBuilder constantScoreQueryBuilder = new ConstantScore QueryBuilder(QueryBuilders.termQuery("amenities", "停车场")); 
+    searchSourceBuilder.query(constantScoreQueryBuilder); 
+    constantScoreQueryBuilder.boost(2.0f); 
+    searchRequest.source(searchSourceBuilder);  //设置查询 
+   	printResult(searchRequest);                  //打印结果 
+} 
 ```
 
 ### terms 多字段
@@ -1069,6 +1417,19 @@ GET /<index_name>/_search
 }
 ```
 
+```java
+// Java terms 查询示例
+public void termsSearch() { 
+    //创建搜索请求 
+    SearchRequest searchRequest = new SearchRequest("hotel"); 
+    SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder(); 
+    //构建terms查询 
+    searchSourceBuilder.query(QueryBuilders.termsQuery("city","北京","天津")); 
+    searchRequest.source(searchSourceBuilder);  //设置查询请求 
+   printResult(searchRequest);                  //打印搜索结果 
+}
+```
+
 ### range 范围查询
 
 针对指定字段值在给定范围内的文档的检索类型。这种查询适合对数字、日期或其他可排序数据类型的字段进行范围筛选。range 检索支持多种比较操作符，如大于（gt）、大于等于（gte）、小于（lt）和小于等于（lte）等，可以实现灵活的区间查询
@@ -1087,18 +1448,49 @@ GET /<index_name>/_search
 }
 ```
 
+```java
+// Java 范围查询示例，日期类型要注意格式是否符合 mappings 定义
+public void rangeSearch() { 
+    //创建搜索请求 
+    SearchRequest searchRequest = new SearchRequest("hotel"); 
+    SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder(); 
+    //构建range查询 
+    QueryBuilder queryBuilder = QueryBuilders.rangeQuery("create_time").gte("20210115120000").lte("20210116120000");
+    searchSourceBuilder.query(queryBuilder); 
+    searchRequest.source(searchSourceBuilder);   //设置查询请求 
+    printResult(searchRequest);                  //打印搜索结果 
+}
+```
+
 ### exists 存在查询
 
 用于筛选具有特定字段值的文档。这种查询类型适用于检查文档中是否存在某个字段，或者该字段是否包含非空值。通过使用 exists 检索，你可以有效地过滤掉缺少关键信息的文档，从而专注于包含所需数据的结果。应用场景包括但不限于数据完整性检查、查询特定属性的文档以及对可选字段进行筛选等
+
+在某些场景下，我们希望找到某个字段不为空的文档，则可以用 exists 搜索。字段不为空的条件有：
+
+-   值存在且不是 null
+-   值不是空数组
+-   值是数组，但不是 [null]
 
 ```json
 GET /<index_name>/_search
 {
     "query": {
        "exists": {
-           "field": "missing_field"
+           "field": "<field_name>"
        }
     }
+}
+```
+
+```java
+// Java exists 查询示例
+public void existsSearch(){ 
+    SearchRequest searchRequest=new SearchRequest("hotel_1"); 
+    SearchSourceBuilder searchSourceBuilder=new SearchSourceBuilder(); 
+    searchSourceBuilder.query(QueryBuilders.existsQuery("tag")); 
+    searchRequest.source(searchSourceBuilder); 
+    printResult(searchRequest); 
 }
 ```
 
@@ -1205,9 +1597,9 @@ GET /<index_name>/_search
        "fuzzy": {
            "<field_name>": {
                "value": "<term>",
-               # AUTO 为 [0, 1, 2]，即表示编辑距离不超过2
+               // AUTO 为 [0, 1, 2]，即表示编辑距离不超过2
                "fuzziness": "AUTO",
-           	   # 搜索词的前缀长度，表示在此长度内不会应用模糊匹配
+           	   // 搜索词的前缀长度，表示在此长度内不会应用模糊匹配
                "prefix_length": 1
            }
        }
@@ -1228,14 +1620,14 @@ GET /<index_name>/_search
        "term_set": {
            "<field_name>": {
                "term": ["term1", "term2"],
-               # 自定义脚本，用于动态计算匹配数量
+               // 自定义脚本，用于动态计算匹配数量
                "minimum_should_match_script": {
                    "source": "<script>"
                }
-               # 也可以静态指定需要匹配的数量
-               # "minimum_should_match": "<value>"
-    		   # 也可以静态指定需要匹配的字段
-               # "minimum_should_match_field": "<name>"
+               // 也可以静态指定需要匹配的数量
+               // "minimum_should_match": "<value>"
+    		   // 也可以静态指定需要匹配的字段
+               // "minimum_should_match_field": "<name>"
            }
        }
     }
@@ -1274,6 +1666,7 @@ GET /<index_name>/_search
     }
 }
 
+// 使用 operator 规定查询词之间的关系
 GET /<index_name>/_search
 {
     "query": {
@@ -1281,10 +1674,23 @@ GET /<index_name>/_search
            "<field_name>": {
                "query": "<query_str>",
                "operator": "or",
+               // 最小匹配参数，其值为一个数值，意义为可以匹配上的词的个数
                "minimum_should_match": <value>
            }
        }
     }
+}
+```
+
+```java
+// Java match 查询示例
+public void matchSearch() { 
+    SearchRequest searchRequest = new SearchRequest();  //新建搜索请求 
+    SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder(); 
+    //新建match查询，并设置operator值为and
+    searchSourceBuilder.query(QueryBuilders.matchQuery("title", "金都").operator(Operator.AND));
+    searchRequest.source(searchSourceBuilder);         //设置查询 
+   	printResult(searchRequest);                         //打印结果 
 }
 ```
 
@@ -1304,9 +1710,21 @@ GET /<index_name>/_search
 }
 ```
 
+```java
+// Java multi_match 查询示例
+public void multiMatchSearch() { 
+    SearchRequest searchRequest = new SearchRequest();  //新建搜索请求 
+    SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder(); 
+    // 新建multi_match查询，从"title"和"amenities"字段查询"假日"
+    searchSourceBuilder.query(QueryBuilders.multiMatchQuery("假日", "title", "amenities")); 
+    searchRequest.source(searchSourceBuilder);    //设置查询 
+   	printResult(searchRequest);                    //打印结果 
+}
+```
+
 ### match_phrase 短语查询
 
-用于执行短语搜索，它不仅匹配整个短语，而且还考虑了短语中各个词的**顺序和位置**。这种查询类型对于搜索精确短语非常有用，尤其是在用户输入的查询与文档中的文本表达方式需要严格匹配时
+用于执行短语搜索，它不仅匹配整个短语，而且还考虑了短语中各个词的**顺序和位置**。这种查询类型对于搜索**精确短语**非常有用，尤其是在用户输入的查询与文档中的文本表达方式需要严格匹配时
 
 ```json
 GET /<index_name>/_search
@@ -1315,11 +1733,24 @@ GET /<index_name>/_search
        "match_phrase": {
            "<field_name>": {
                "query": "<phrase>",
-               # 匹配查询词条可间隔的距离
+               // 匹配查询词条可间隔的距离
                "slop": <value>
            }
        }
     }
+}
+```
+
+```java
+// Java 短语查询示例
+public void matchPhraseSearch() { 
+    SearchRequest searchRequest = new SearchRequest(); //新建搜索请求 
+    SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder(); 
+    //新建match_phrase查询，并设置slop值为2 
+    QueryBuilder matchPhraseQueryBuilder=QueryBuilders.matchPhraseQuery("title","文雅酒店").slop(2); 
+    searchSourceBuilder.query(matchPhraseQueryBuilder); 
+    searchRequest.source(searchSourceBuilder);  //设置查询 
+   	printResult(searchRequest);                  //打印结果 
 }
 ```
 
@@ -1377,10 +1808,10 @@ GET /<index_name>/_search
 
 | 类型     | 说明                                                         |
 | -------- | ------------------------------------------------------------ |
-| must     | 可包含多个查询条件，每个条件均满足的文档才能被搜索到，每次查询需要计算相关度得分，属于搜索上下文 |
-| should   | 可包含多个查询条件，不存在 must 和 filter 条件时，至少要满足多个查询条件中的一个，文档才能被搜索到，否则需满足的条件数量不受限制，匹配到的查询越多相关度越高，也属于搜索上下文 |
+| must     | 与查询，可包含多个查询条件，每个条件均满足的文档才能被搜索到，每次查询需要计算相关度得分，属于搜索上下文 |
+| should   | 或查询，可包含多个查询条件，不存在 must 和 filter 条件时，至少要满足多个查询条件中的一个，文档才能被搜索到，否则需满足的条件数量不受限制，匹配到的查询越多相关度越高，也属于搜索上下文 |
+| must_not | 非查询，可包含多个过滤条件，每个条件均不满足的文档才能被搜索到，每个过滤条件不计算相关度得分，结果在一定条件下会被缓存，属于过滤上下文 |
 | filter   | 可包含多个过滤条件，每个条件均满足的文档才能被搜索到，每个过滤条件不计算相关度得分，结果在一定条件下会被缓存，属于过滤上下文 |
-| must_not | 可包含多个过滤条件，每个条件均不满足的文档才能被搜索到，每个过滤条件不计算相关度得分，结果在一定条件下会被缓存，属于过滤上下文 |
 
 ```json
 GET /<index_name>/_search
@@ -1401,6 +1832,76 @@ GET /<index_name>/_search
            ]
        }
     }
+}
+```
+
+```java
+// Java must 示例
+public void mustSearch(){ 
+    SearchRequest searchRequest=new SearchRequest("hotel"); //新建请求 
+    SearchSourceBuilder searchSourceBuilder=new SearchSourceBuilder(); 
+    BoolQueryBuilder boolQueryBuilder=QueryBuilders.boolQuery(); 
+    //构建城市term查询 
+    TermQueryBuilder termQueryIsReady=QueryBuilders.termQuery("city","北京");
+    //构建价格range查询
+    RangeQueryBuilder rangeQueryBuilder = QueryBuilders.rangeQuery("price").gte(350).lte(400);                               
+    //进行关系“与”查询 
+    boolQueryBuilder.must(termQueryIsReady).must(rangeQueryBuilder); 
+    searchSourceBuilder.query(boolQueryBuilder); 
+    searchRequest.source(searchSourceBuilder);  //设置查询 
+   	printResult(searchRequest);                  //打印结果 
+}
+```
+
+```java
+// Java should 示例
+public void shouldSearch() { 
+    //新建搜索请求 
+    SearchRequest searchRequest = new SearchRequest("hotel"); 
+    SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder(); 
+    BoolQueryBuilder boolQueryBuilder = QueryBuilders.boolQuery(); 
+    //构建城市为“北京”的term查询 
+    TermQueryBuilder termQueryIsReady = QueryBuilders.termQuery("city", "北京"); 
+    //构建城市为“天津”的term查询 
+    TermQueryBuilder termQueryWritter = QueryBuilders.termQuery("city", "天津"); 
+    //进行关系“或”查询 
+    boolQueryBuilder.should(termQueryIsReady).should(termQueryWritter); 
+    searchSourceBuilder.query(boolQueryBuilder); 
+    searchRequest.source(searchSourceBuilder);   //设置查询 
+   	printResult(searchRequest);                   //打印结果 
+}
+```
+
+```java
+// Java must not 示例
+public void mustNotSearch() { 
+    //新建搜索请求 
+    SearchRequest searchRequest = new SearchRequest("hotel"); 
+    SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder(); 
+    BoolQueryBuilder boolQueryBuilder = QueryBuilders.boolQuery(); 
+    //构建城市为“北京”的term查询 
+    TermQueryBuilder termQueryIsReady = QueryBuilders.termQuery("city", "北京"); 
+    //构建城市为“天津”的term查询 
+    TermQueryBuilder termQueryWritter = QueryBuilders.termQuery("city", "天津"); 
+    //进行关系“必须不”查询 
+    boolQueryBuilder.mustNot(termQueryIsReady).mustNot(termQueryWritter); 
+    searchSourceBuilder.query(boolQueryBuilder); 
+    searchRequest.source(searchSourceBuilder);     //设置查询 
+   	printResult(searchRequest);                     //打印结果 
+}
+```
+
+```java
+// Java filter 示例
+public void filterSearch() { 
+    SearchRequest searchRequest = new SearchRequest("hotel"); 
+    SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder(); 
+    BoolQueryBuilder boolQueryBuilder = QueryBuilders.boolQuery(); 
+    boolQueryBuilder.filter( QueryBuilders.termQuery("city", "北京")); 
+    boolQueryBuilder.filter(QueryBuilders.termQuery("full_room", false)); 
+    searchSourceBuilder.query(boolQueryBuilder); 
+    searchRequest.source(searchSourceBuilder); 
+    printResult(searchRequest); 
 }
 ```
 
@@ -1441,6 +1942,8 @@ ElasticSearch 中地理空间数据通常存储在 geo_point 字段类型中，�
 
 允许用户基于地理位置信息来搜索和过滤数据。在 Elasticsearch 这样的全文搜索引擎中，地理空间位置查询被广泛应用，例如在旅行、房地产、物流和零售等行业，用于提供基于位置的搜索功能
 
+geo_distance 查询方式需要用户指定一个坐标点，在指定距离该点的范围后，ES 即可查询到相应的文档
+
 ```json
 GET /my_index/_search
 {
@@ -1464,6 +1967,152 @@ GET /my_index/_search
 }
 ```
 
+```java
+// Java geo_distance 示例
+public void geoDistanceSearch() { 
+    // 新建搜索请求 
+    SearchRequest searchRequest = new SearchRequest("hotel"); 
+    SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder(); 
+    // 新建geo_distance查询，设置基准点坐标和周边距离 
+    searchSourceBuilder.query(QueryBuilders.geoDistanceQuery("location").distance(5, DistanceUnit.KILOMETERS).point(40.026919, 116.47473)); 
+    searchRequest.source(searchSourceBuilder);     // 设置查询 
+   	printResult(searchRequest);                    // 打印结果
+}
+```
+
+geo_shape 查询提供的是矩形内的搜索，需要用户给出左上角的顶点地理坐标和右下角的顶点地理坐标
+
+```json
+GET /my_index/_search
+{
+    "query": {
+        "bool": {
+            "must": {
+                "match_all": {}
+            },
+            "filter": {
+                "geo_bounding_box": {
+                    "location": {
+                        "top_left": {
+                            "lat": 39.922,
+                            "lon": 116.457
+                        },
+                        "bottom_right": {
+                            "lat": 39.907,
+                            "lon": 116.479
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+geo_polygon 比 geo_shape 提供的地理范围功能更加灵活，它支持多边形内的文档搜索，使用该查询需要提供多边形所有顶点的地理坐标
+
+```json
+GET /my_index/_search
+{
+    "query": {
+        "bool": {
+            "must": {
+                "match_all": {}
+            },
+            "filter": {
+                "geo_polygon": {
+                    "location": {
+                        points: [
+                            {
+                                "lat": 39.959,
+                                "lon": 116.417
+                            },
+                            {
+                                "lat":39.962,
+                                "lon":116.432
+                            },
+                            {
+                                "lat": 39.965,
+                                "lon": 116.421
+                            }
+                        ]
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+```java
+// Java geo_poly 示例
+public void geoPolygonSearch() { 
+    // 新建搜索请求 
+    SearchRequest searchRequest = new SearchRequest("hotel"); 
+    // 新建geo_distance查询，设置基准点坐标和周边距离 
+    SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder(); 
+    // 新建多边形顶点列表 
+    List geoPointList = new ArrayList(); 
+    // 添加多边形顶点 
+    geoPointList.add(new GeoPoint(39.959829, 116.417088)); 
+    geoPointList.add(new GeoPoint(39.960272, 116.432035)); 
+    geoPointList.add(new GeoPoint(39.965802, 116.421399));
+    // 新建geo_polygon查询
+    searchSourceBuilder.query(QueryBuilders.geoPolygonQuery("location", geoPointList)); 
+    searchRequest.source(searchSourceBuilder);  //设置查询 
+    printResult(searchRequest);                  //打印结果 
+}
+```
+
+## 搜索建议
+
+搜索建议，即在用户输入搜索关键词的过程中系统进行自动补全，用户可以根据自己的需求单击搜索建议的内容直接进行搜索。在搜索时，用户每输入一个字符，前端就需要向后端发送一次查询请求对匹配项进行查询，因此这种场景对后端响应速度的要求比较高。通过协助用户进行搜索，可以避免用户输入错误的关键词，引导用户使用更合适的关键词，提升用户的搜索体验和搜索效率
+
+ES 使用 Completion Suggester 实现搜索建议查询
+
+注意：为了使用 Completion Suggester，其对应的字段类型需要定义为 completion 类型
+
+```json
+GET /my_index/_search
+{
+    "suggest": {
+        "<name>": {
+            "prefix": "<value>",
+            "completion": {
+                "field": "<field_name>"
+            }
+        }
+    }
+}
+```
+
+和普通搜索不同的是，搜索建议的结果不是封装在 hits 中，而是单独封装在 suggest 中
+
+```java
+// Java suggest 示例
+public void suggestSearch() throws IOException { 
+    //创建搜索请求,指定索引名称为hotel_sug 
+    SearchRequest searchRequest = new SearchRequest("hotel_sug"); 
+    SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder(); 
+    //创建completion类型的搜索建议 
+    CompletionSuggestionBuilder comSuggest = SuggestBuilders.completionSuggestion("query_word").prefix("如家"); 
+    SuggestBuilder suggestBuilder = new SuggestBuilder(); 
+    //添加搜索建议，"hotel_zh_sug"为自定义名称 
+    suggestBuilder.addSuggestion("hotel_zh_sug", comSuggest); 
+    searchSourceBuilder.suggest(suggestBuilder); //设置搜索建议请求 
+    searchRequest.source(searchSourceBuilder);   //设置查询请求 
+    SearchResponse response = client.search(searchRequest, RequestOptions.DEFAULT);       //进行搜索,获取搜索结果 
+    CompletionSuggestion suggestion = response.getSuggest().getSuggestion("hotel_zh_sug");       //获取搜索建议结果 
+    System.out.println("sug result:"); 
+    //遍历搜索建议结果并进行打印 
+    for (CompletionSuggestion.Entry.Option option : suggestion.getOptions()) { 
+        System.out.println("sug:" + option.getText().string()); 
+    }
+}
+```
+
+**注意**：ES 提供的 Completion Suggester 功能使用的索引结构不是倒排索引，而是在内存中构建 **FST（Finite StateTransducers）**。构建该数据结构是有比较大的内存存储成本的，因此在生产环境中向索引中添加数据时一定要关注 ES 节点的内存消耗，避免数据量过大造成 ES 节点内存耗尽从而影响集群服务
+
 ## 向量查询
 
 通过 KNN（K-Nearest Neighbors）算法支持向量近邻检索。这一特性使得 ElasticSearch 在机器学习、数据分析和推荐系统等领域的应用变得更加广泛和强大
@@ -1479,7 +2128,7 @@ POST /<index_name>/_search
         "k": 10,
         "num_candidates": 100
     },
-	"fields": [ "<field1>", "<field2>"]
+	"fields": ["<field1>", "<field2>"]
 }
 ```
 
@@ -1657,7 +2306,7 @@ POST /products/_search
             },
             "script_score": {
                 "script": {
-                    # 原始分数 *（销量 + 浏览人数）
+                    // 原始分数 *（销量 + 浏览人数）
                     "source": "_score * (doc['sales'].value + doc['visitors'].value)"
                 }
             }
@@ -1666,6 +2315,26 @@ POST /products/_search
 }
 ```
 
+```java
+// Java function_score 示例
+public void functionScoreSearch() { 
+    //创建搜索请求 
+    SearchRequest searchRequest = new SearchRequest("hotel"); 
+    SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder(); 
+    //构建term查询 
+    TermQueryBuilder termQuery = QueryBuilders.termQuery("city", "北京");
+    //构建随机函数
+    ScoreFunctionBuilder scoreFunction = ScoreFunctionBuilders.randomFunction(); 
+    //构建Function Score查询 
+    FunctionScoreQueryBuilder funcQuery = QueryBuilders.functionScoreQuery(termQuery, scoreFunction).boostMode(CombineFunction.SUM);
+    searchSourceBuilder.query(funcQuery); 
+    searchRequest.source(searchSourceBuilder);  //设置查询请求 
+   	printResult(searchRequest);                  //打印搜索结果 
+}
+```
+
+
+
 ### rescore_query
 
 二次评分是指重新计算查询所返回的结果文档中指定文档的得分
@@ -1673,9 +2342,9 @@ POST /products/_search
 ElasticSearch 会截取查询返回的前 N 条结果，并使用预定义的二次评分方法来重新计算其得分。但对全部有序的结果集进行重新排序的话，开销势必很大，使用 rescore_query 可以只对结果集的子集进行处理。该方式适用于对查询语句的结果不满意，需要重新打分的场景
 
 ```json
-# 查询 content 字段中包含”实战“的文档，权重为0.7
-# 并对文档中 title 为 MySQL 的文档增加评分，权重为1.2
-# window_size 为 50，表示取分片结果的前 50 进行重新算
+// 查询 content 字段中包含”实战“的文档，权重为0.7
+// 并对文档中 title 为 MySQL 的文档增加评分，权重为1.2
+// window_size 为 50，表示取分片结果的前 50 进行重新算
 GET /books/_search
 {
     "query": {
@@ -1845,7 +2514,7 @@ PUT /address
 -   cardinality
 
 ```json
-# 统计最大、最小和平均值
+// 统计最大、最小和平均值
 POST /employees/_search
 {
     "aggs": {
@@ -1869,7 +2538,7 @@ POST /employees/_search
 ```
 
 ```json
-# 统计基数
+// 统计基数
 POST /employees/_search
 {
     "size": 0,
@@ -2001,7 +2670,7 @@ POST /employees/_search
     -   moving function（移动平均值）
 
 ```json
-# 平均工资最低的工种
+// 平均工资最低的工种
 POST /employees/_search
 {
     "size": 0,
