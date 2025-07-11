@@ -2036,6 +2036,58 @@ GET /<index_name>/_search
 }
 ```
 
+```java
+// Java 高亮示例
+public void hightLightSearch() {     
+    SearchRequest searchRequest = new SearchRequest();  //新建搜索请求 
+    SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder();
+    //新建match查询，并设置operator的值为and
+    searchSourceBuilder.query(QueryBuilders.matchQuery("title", "金都").operator(Operator.AND)); 
+    searchRequest.source(searchSourceBuilder);  //设置查询 
+    //新建高亮显示搜索 
+    HighlightBuilder highlightBuilder = new HighlightBuilder(); 
+    highlightBuilder.preTags("");        //设置高亮显示标签前缀 
+    highlightBuilder.postTags("");      //设置高亮显示标签后缀 
+    highlightBuilder.field("title");           //设置高亮显示字段 
+    searchSourceBuilder.highlighter(highlightBuilder); //设置高亮显示搜索 
+    try { 
+        SearchResponse searchResponse = client.search(searchRequest, RequestOptions.DEFAULT);                       //执行搜索 
+        SearchHits searchHits = searchResponse.getHits();  //获取搜索结果集
+        
+        for (SearchHit searchHit : searchHits) { //遍历搜索结果集
+            //得到高亮显示搜索结果
+            Text[] texts = searchHit.getHighlightFields().get("title").getFragments(); 
+            for (Text text : texts) {          //遍历高亮显示搜索 
+                System.out.println(text);      //打印每一个高亮显示结果
+            } 
+            System.out.println("--------------------------------------"); 
+        } 
+    } catch (Exception e) { 
+        e.printStackTrace(); 
+    } 
+}
+```
+
+ES 支持的高亮显示搜索策略有 plain、unified 和 fvh，用户可以根据搜索场景进行选择
+
+选择高亮显示搜索策略时，只需要在 highlight 子句中指定 type 字段的值即可
+
+### plain
+
+plain 是精准度比较高的策略，因此它必须将文档全部加载到内存中，并重新执行查询分析。由此可见，plain 策略在处理大量文档或者大文本的索引进行多字段高亮显示搜索时耗费的资源比较严重。因此 plain 策略适合在**单个字段**上进行简单的高亮显示搜索
+
+### unified
+
+unified 策略是由 Lucene Unified Highlighter 来实现的，其使用 BM25（Best Match25）算法进行匹配。在默认情况下，ES 高亮显示使用的是该策略
+
+### fvh
+
+上述两种策略在大文本索引高亮显示搜索时速度低，Lucene 还提供了基于向量的高亮显示搜索策略 fvh（fast vector highlighter）
+
+fvh 策略更适合在文档中包含**大字段**的情况（如超过1MB）下使用，如果计算机的 I/O 性能更好（如使用 SSD），则 fvh 策略在速度上的优势更加明显
+
+如果要使用 fvh 策略进行高亮显示搜索，需要设定字段的 term_vector 属性值为 with_positions_offsets
+
 ## 地理空间查询
 
 ElasticSearch 中地理空间数据通常存储在 geo_point 字段类型中，其包含经纬度坐标，用于表示地球上的一个点
@@ -2231,6 +2283,345 @@ POST /<index_name>/_search
 	"fields": ["<field1>", "<field2>"]
 }
 ```
+
+# 分析器
+
+分析器一般用在下面两个场景中：
+
+-   创建或更新文档时（合称索引时），对相应的文本字段进行分词处理
+-   查询文本字段时，对查询语句进行分词
+
+分析器结构遵循**三段式**原则，即字符过滤器、分词器和词语过滤器。其中，字符过滤器可以有 0 个或多个，分词器必须只有一个，词语过滤器可以有 0 个或多个
+
+ES 默认使用 standard 分析器，由 standard分词器、Lower Case 分词过滤器和 Stop Token 分词过滤器构成的
+
+ES 内置的分析器
+
+| 名称              | 功能                                             |
+| ----------------- | ------------------------------------------------ |
+| simple 分析器     | 按非字母字符进行词语拆分，并将所有词语转换为小写 |
+| language 分析器   | 语言分析器                                       |
+| whitespace 分析器 | 按照空白字符拆分词语                             |
+| pattern 分析器    | 使用正则表达式将文本拆分为词语                   |
+
+## 字符过滤器
+
+字符过滤器是分析器处理文本数据的第一道工序，它接收原始的字符流，对原始字符流中的字符进行添加、删除或者转换操作，进而改变原始的字符流
+
+ES 常用字符过滤器
+
+| 名称                 | 功能                       |
+| -------------------- | -------------------------- |
+| 映射关系字符过滤器   | 根据配置的映射关系替换字符 |
+| HTML 擦除过滤器      | 去掉 HTML 元素             |
+| 正则表达式替换过滤器 | 用正则表达式处理字符串     |
+
+## 分词器
+
+分词器在分析器中负责非常重要的一环工作，即按照规则来切分词语
+
+对于英文来说，简单的分词器通常是根据空格及标点符号进行切分。然而对于中文分词来说，字符之间往往没有空格，因此采用英文的切分规则是不可取的
+
+分词器对文本进行切分后，需要保留词语与原始文本之间的对应关系，因此分词器还负责记录每个 Token 的位置，以及开始和结束的字符偏移量
+
+ES 常用分词器
+
+| 名称       | 功能                                                     |
+| ---------- | -------------------------------------------------------- |
+| 标准分词器 | 对英文分词时，基于语法分词；对中文分词时，切分成单字     |
+| 字母分词器 | 使用非字母的字符作为分词标记                             |
+| 小写分词器 | 功能上等同于字母分词器，并且把所有分词结果转换为小写形式 |
+| 空格分词器 | 使用空格作为分词标记                                     |
+
+## 分词过滤器
+
+分词过滤器接收分词器的处理结果，并可以将切分好的词语进行加工和修改，进而对分词结果进行规范化、统一化和优化处理
+
+ES 常用分词过滤器
+
+| 名称              | 功能                     |
+| ----------------- | ------------------------ |
+| Lower Case 过滤器 | 将所有字母转换为小写形式 |
+| Stop Token 过滤器 | 将停用词从分词结果中移除 |
+| 同义词分词过滤器  | 为分词结果添加同义词     |
+
+## analyze
+
+ES 提供了分析 API 帮助理解分析器的运行结果。在 DSL 中可以直接使用参数 analyzer 来指定分析器的名称进行测试
+
+```json
+POST _analyze
+{
+    "analyzer": "<analyzer_name>",
+    "text": "<test_txt>"
+}
+```
+
+分析 API 返回信息的参数包含
+
+-   token：文本被切分为词语后的某个词语
+-   start_offset：该词在文本中的起始偏移位置
+-   end_offset：该词在文本中的结束偏移位置
+-   type：词性，各个分词器的值不一样
+-   position：分词位置，指明该词语在原文本中是第几个出现的
+
+## 自定义分析器
+
+在有些场景中，某个文本字段不是自然语言而是在某种规则下的编码。当系统内置的分析器不满足需求时，用户可以使用自定义分析器
+
+首先，需要在索引创建的 DSL 中定义分析器 custom_analyzer，该分析器中只有一个分词组件，该分词组件使用逗号进行词语切分；然后在 mappings 中使用 analyzer 参数指定字段（sup_env）的分析器为定义好的 custom_analyzer 分析器
+
+```json
+PUT /hotel 
+{ 
+    "settings": { 
+        "analysis": { 
+            "analyzer": { 
+                "custom_analyzer": {                  //自定义分析器 
+                    "tokenizer": "comma_tokenizer"     //使用comma_tokenizer分词器 
+                } 
+            }, 
+            "tokenizer": {         //定义分词器 
+                "comma_tokenizer": { 
+                      "type": "pattern", 
+                      "pattern": ","     //指定切分时使用的分隔符 
+                } 
+            } 
+        } 
+    }, 
+    "mappings": { 
+        "properties": { 
+            "title": { 
+                "type": "text", 
+                "analyzer": "whitespace",  //设定title字段索引时使用whitespace分析器 
+                //设定title字段搜索时使用whitespace分析器 
+                "search_analyzer": "whitespace" 
+            }, 
+            "sup_env": { 
+                "type": "text", 
+                //设置sup_env字段使用comma_analyzer分析器 
+                "analyzer": "comma_analyzer" 
+            } 
+        } 
+    } 
+}
+```
+
+## 中文分析器
+
+对于中文来说，一般由一个或多个字组合在一起形成一个词语，并且句子中没有词的界限。根据不同的使用场景，对于词语切分颗粒度的需求也是不一样的
+
+中文分词根据实现原理和特点，分词的切分算法主要有两种，
+
+1.   基于词典的分词算法：按照某种策略将提前准备好的词典和待匹配的字符串进行匹配，当匹配到词典中的某个词时，说明该词分词成功。该算法是匹配算法中最简单、速度最快的算法，其分词算法分为 3 种，即正向最大化匹配法、逆向最大化匹配法和双向最大化匹配法
+2.   基于统计的机器学习算法：事先构建一个语料库，该语料库中是标记好的分词形式的语料，然后统计每个词出现的频率或者词与词之间共现的频率等，基于统计结果给出某种语境下应该切分出某个词的先验概率，后续进行分词时，使用先验概率给出文本应该切分的结果。这类算法中代表的算法有 HMM、CRF、深度学习等，比如结巴分词基于 HMM 算法、HanLP 分词工具基于 CRF 算法等
+
+中文分词的难点：
+
+-   分词标准：不同的分词器使用的分词标准不同，分词的结果也不同
+-   分词歧义：使用分词器对文本进行切分，切分后的结果和原来的字面意义不同
+-   新词识别：新词也称未登录词，即该词没有在词典或者训练语料中出现过。在这种情况下，分词器很难识别出该词
+
+### IK 分析器
+
+IK 分析器是一个开源的、基于 Java 语言开发的轻量级的中文分词工具包，它提供了多种语言的调用库。其实现了词典的冷更新和热更新，用户可以选择适合自己的方式进行词典的更新
+
+IK 分析器提供了两个子分析器，即 ik_smart 和 ik_max_word，另外它还提供了两个和分析器同名的子分词器
+
+ik_max_word 和 ik_smart 分析器的主要区别在于切分词语的粒度上，ik_smart 的切分粒度比较粗，而 ik_max_word 将文本进行了最细粒度的拆分，甚至穷尽了各种可能的组合
+
+使用 IK 分析器还可以在其安装目录下的 config 文件夹中创建 my.dict 文件自定义添加词典，并在添加完成后修改 IK 分析器的配置文件，路径为 config/IKAnalyzer.cfg.xml ，将新建的字典文件加入 ext_dict 选项中使其生效
+
+### HanLP 分析器
+
+HanLP 是由一系列模型与算法组成的 Java 工具包，它从中文分词开始，覆盖词性标注、命名实体识别、句法分析、文本分类等常用的 NLP 任务，提供了丰富的 API，被广泛用于 Lucene、Solr 和 ES 等搜索平台。HanLP 支持最短路分词、N-最短路分词和 CRF 分词等分词算法
+
+HanLP 分析器提供了众多的子分析器，如 hanlp、hanlp_standard、hanlp_crf 和 hanlp_n_short 等
+
+同样也可以给 HanLP 分析器添加用户自定义词典。在 \${ES_HOME}/plugins/analysis-hanlp/data/dictionary/custom 目录中新建字典文件 my.dict，然后在该文件中添加需要的词语（当有多个词语需要添加时，每个词语单独一行），并在词语添加完成后修改 \${ES_HOME}config/analysis-hanlp/hanlp.properties 配置文件，修改选项 CustomDictionaryPath，在后面添加上面新建的字典文件即可
+
+## 同义词
+
+在搜索场景中，同义词用来处理不同的查询词，有可能是表达相同搜索目标的场景。用户在使用这些与同义词相关的关键词进行搜索时，搜索引擎返回的搜索结果应该是一致的
+
+用户可以通过 ES 中的分析器来使用同义词，使用方式分为两种
+
+1.   建立索引时指定同义词并构建同义词的倒排索引：在 ES 内置的分词过滤器中，有一种分词过滤器叫作 synonyms，它是一种支持用户自定义同义词的分词过滤器
+
+     ```json
+     PUT /hotel 
+     { 
+         "settings": { 
+             "analysis": { 
+                 "filter": {                       //定义分词过滤器 
+                     "ik_synonyms_filter": {  
+                         "type": "synonym", 
+                         "synonyms": [                //在分词过滤器中定义近义词 
+                             "北京,首都", 
+                             "天津,天津卫", 
+                             "假日,度假" 
+                         ] 
+                     } 
+                 }, 
+                 "analyzer": {                      //自定义分析器 
+                     "ik_analyzer_synonyms": { 
+                         "tokenizer": "ik_max_word",   //指定分词器 
+                         "filter": [                   //指定分词过滤器 
+                             "lowercase", 
+                             "ik_synonyms_filter" 
+                         ]
+                     } 
+                 } 
+             } 
+         }, 
+         "mappings": { 
+             "properties": { 
+                 "title": { 
+                 "type": "text", 
+                 "analyzer": "ik_analyzer_synonyms"  //指定索引时使用自定义的分析器 
+                 }
+         	} 
+         } 
+     }
+     ```
+
+2.   在搜索时指定字段的 search_analyzer 查询分析器使用同义词：在 ES 内置的分词过滤器中还有个分词过滤器叫作 synonym_graph，它是一种支持查询时用户自定义同义词的分词过滤器
+
+     ```json
+     PUT /hotel 
+     { 
+         "settings": { 
+             "analysis": { 
+                 "filter": {                          //定义分词过滤器 
+                     "ik_synonyms_graph_filter": { 
+                         "type": "synonym_graph", 
+                         "synonyms": [                   //在分词过滤器中定义近义词 
+                             "北京,首都", 
+                             "天津,天津卫", 
+                             "假日,度假" 
+                         ] 
+                     } 
+                 }, 
+                 "analyzer": {                       //自定义分析器 
+                     "ik_analyzer_synonyms_graph": { 
+                         "tokenizer": "ik_max_word",     //指定分词器 
+                         "filter": [      //指定分词过滤器 
+                             "lowercase", 
+                             "ik_synonyms_graph_filter" 
+                         ] 
+                     } 
+                 } 
+             } 
+         }, 
+         "mappings": { 
+             "properties": { 
+                 "title": { 
+                     "type": "text", 
+                     "analyzer": "ik_max_word", 
+                     //指定查询时使用自定义的分析器 
+                     "search_analyzer": "ik_analyzer_synonyms_graph" 
+                 } 
+             } 
+         } 
+     }
+     ```
+
+两种方式命中的结果集和索引时使用的同义词一致，但是结果的**排序**却不同。这是因为在索引时使用同义词会计算全部的同义词的 TF/IDF 值，在搜索时进行的相关性计算，是将同义词和其他词同等对待，也就是将其 TF/IDF 值计算在内。而在搜索时使用同义词，需要 ES 将同义词转换后再进行相关性计算
+
+注意：如果有更新同义词的需求，则只能使用查询时使用同义词的这种方式
+
+如果同义词比较多，在 settings 中进行配置时将非常烦琐。ES 支持用户将同义词放在文件中，文件的位置必须是在 \${ES_HOME}/config 目录及其子目录下，注意该文件必须存在于 ES 集群中的每一个节点上。在 \${ES_HOME}/config 目录下建立一个子目录 mydict，然后在该目录下创建一个名称为 synonyms.dict 的文件，然后在创建索引时，在 settings 中指定同义词文件及其路径即可
+
+## 停用词
+
+停用词也叫停止词，是指文本在被分词之后的词语中包含的无搜索意义的词。在构建搜索引擎索引时，常常忽略这样的词，这样可以大大提升搜索效率
+
+可以通过创建自定义分析器的方式使用停用词，方法是在分析器中指定停用词过滤器，在过滤器中可以指定若干个停用词
+
+```json
+PUT /hotel 
+{ 
+    "settings": { 
+        "analysis": { 
+            "filter": {                  //定义分词过滤器 
+                "my_stop": {               //指定停用词过滤器 
+                    "type": "stop", 
+                    "stopwords": [           //指定停用词集合 
+                        "我", 
+                        "的", 
+                        "这" 
+                    ] 
+                } 
+            }, 
+            "analyzer": {                //自定义分析器 
+                "standard_stop": { 
+                    "tokenizer": "standard", 
+                    "filter":["my_stop"]     //指定分词过滤器 
+                } 
+            } 
+        } 
+    }, 
+    "mappings": { 
+        "properties": { 
+            "title": { 
+                "type": "text", 
+                "analyzer": "standard_stop" //指定自定义分析器 
+            } 
+        } 
+    } 
+}
+```
+
+此外常用的内置分析器都自带有停用词过滤器，只需对其参数进行设置即可
+
+如果用户想要使用 IK 分析器时添加自定义停用词文件，只需要在 \${ES_HOME}/plugins/ik-analysis/config 目录下创建 my_stopword.dict 文件，并在其中添加停用词，然后修改 \${ES_HOME}/plugins/ik-analysis/config/IKAnalyzer.cfg.xml 文件，设置配置项 ext_stopwords 的值为停用词词典的文件名称即可
+
+同样在 HanLP 分析器中也可以自定义停用词文件，文件位置为 \${ES_HOME}/plugins/analysis-hanlp/data/dictionary/stopwords.txt，在该文件中已经有一些 HanLP 分析器内置的停用词，在该文件末尾追加停用词即可。但需要注意的是，HanLP 分析器默认不启动停用词，需要将 my_tokenizer分词器的enable_stop_dictionary 属性被设置为 true，表示当前分词器启用停用词
+
+```json
+PUT /hotel 
+{ 
+    "settings": { 
+        "analysis": { 
+            "tokenizer": {                             //自定义分词器 
+                "my_tokenizer": { 
+                    "type": "hanlp_standard",              //封装hanlp_standard分词过滤器 
+                    "enable_stop_dictionary": true         //启用停用词词典 
+                } 
+            }, 
+            "analyzer": {                               //自定义分析器 
+                "my_hanlp": { 
+                    "tokenizer": "my_tokenizer" 
+                } 
+            } 
+        } 
+    }, 
+    "mappings": { 
+        "properties": { 
+            "title": { 
+                "type": "text", 
+                "analyzer": "my_hanlp"                   //指定自定义分析器 
+            } 
+        } 
+    } 
+}
+```
+
+## 拼音搜索
+
+拼音搜索在中文搜索环境中是经常使用的一种功能，用户只需要输入关键词的拼音全拼或者拼音首字母，搜索引擎就可以搜索出相关结果
+
+在 ES 中可以使用拼音分析器插件进行拼音搜索。拼音分析器提供的分析器为 pinyin，另外还提供了与其同名的分词器和分词过滤器
+
+使用拼音分析器时，有很多的选项可以设置，例如，是否显示单字拼音的首字母、是否显示组合词的首字母、是否显示查询词的全部拼音等
+
+## 拼写纠错
+
+用户在使用搜索引擎的过程中，输入的关键词可能会出现拼写错误的情况。针对错误的关键词，绝大多数的搜索引擎都能自动识别并进行纠正，然后将纠正后的关键词放到索引中匹配数据。如果拼写错误特别多导致无法纠正，则会直接告知用户当前搜索没有匹配的结果
+
+使用 ES 进行拼写纠错，首先需要搜集一段时间内用户搜索日志中有搜索结果的查询词，然后单独建立一个纠正词索引。当用户进行搜索时，如果在商品索引中没有匹配到结果，则在纠正词索引中进行匹配，如果有匹配结果则给出匹配词，并给出该匹配词对应的商品结果，如果没有匹配结果则告知用户没有搜索到商品
+
+在 ES 中进行纠错匹配时使用 fuzzy-match 搜索，该搜索使用编辑距离和倒排索引相结合的形式完成纠错
 
 # 相关性
 
