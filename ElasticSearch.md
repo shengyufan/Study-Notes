@@ -2683,9 +2683,10 @@ $$
 自定义评分的核心是通过修改评分来修改文档相关性，在最前面的位置返回用户最期望的结果。其策略包含
 
 -   indices_boost：索引层面修改相关性
--   boosting：修改文档相关性
+-   boost：修改文档相关性
 -   negative_boost：降低相关性
--   function_score： 自定义评分
+-   Function Score： 自定义评分
+-   Script Score：脚本打分
 -   rescore_query：查询后二次打分
 
 ### indices_boost
@@ -2716,15 +2717,17 @@ POST my_index_100*/_search
 ｝
 ```
 
-### boosting
+### boost
 
-boosting 可在查询时修改文档的相关度。boosting 值所在范围不同，含义也不同
+在 ES 中可以通过查询的 boost 值对某个查询设定其权重。boost 值所在范围不同，含义也不同
 
 -   boosting 默认值为 1
 -   若 boosting 值为 0~1，如 0.2，代表降低评分
 -   若 boosting 值 ＞1，如 1.5，则代表提升评分
 
 适用于某些特定的查询场景，用户可以自定义修改满足某个查询条件的结果评分
+
+boost 值的设置只限定在 term 查询和类 match 查询中，其他类型的查询不能使用 boost 设置
 
 ```json
 GET /blogs/_search
@@ -2751,12 +2754,36 @@ GET /blogs/_search
         }
     }
 }
+```
 
+```java
+// Java 示例
+public void getBoostSearch() { 
+    //创建搜索请求 
+    SearchRequest searchRequest = new SearchRequest("hotel"); 
+    SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder(
+    //构建“金都”的match查询 
+    MatchQueryBuilder matchQueryBuilder1 = QueryBuilders.matchQuery("title", "金都"); 
+    //设置boost值为2 
+    matchQueryBuilder1.boost(2); 
+    //构建“文雅”的match查询，boost使用默认值 
+    MatchQueryBuilder matchQueryBuilder2 = QueryBuilders.matchQuery("title", "文雅"); 
+    BoolQueryBuilder boolQueryBuilder=QueryBuilders.boolQuery(); 
+    //将“金都”的match查询添加到布尔查询中 
+    boolQueryBuilder.should(matchQueryBuilder1); 
+    //将“文雅”的match查询添加到布尔查询中 
+    boolQueryBuilder.should(matchQueryBuilder2); 
+    searchSourceBuilder.query(boolQueryBuilder); //设置查询为布尔查询 
+    searchRequest.source(searchSourceBuilder);   //设置查询请求 
+   	printResult(searchRequest);                   //打印搜索结果 
+} 
 ```
 
 ### negative_boost
 
-若对某些返回结果不满意，但又不想将其排除（must_not），则可以考虑采用 negative_boost 的方式。
+若对某些返回结果不满意，但又不想将其排除（must_not），则可以考虑采用 negative_boost 的方式
+
+此外，对于非 term 或 match 查询，只能使用 boosting 查询
 
 原理说明如下：
 
@@ -2785,9 +2812,47 @@ GET /news/_search
 }
 ```
 
-### function_score
+```java
+// Java 示例
+public void getBoostingSearch() { 
+    //创建搜索请求 
+    SearchRequest searchRequest = new SearchRequest("hotel"); 
+    SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder(); 
+    //构建“金都”的match查询 
+    MatchQueryBuilder matchQueryBuilder = QueryBuilders.matchQuery("title", "金都"); 
+    //构建价格的range查询 
+    QueryBuilder rangeQueryBuilder = QueryBuilders.rangeQuery("price").lte("200"); 
+    //构建满房的term查询 
+    QueryBuilder termQueryBuilder = QueryBuilders.termQuery("full_room", true); 
+    BoolQueryBuilder boolQueryBuilder=QueryBuilders.boolQuery(); 
+    //将价格的range查询添加到布尔查询中 
+    boolQueryBuilder.should(rangeQueryBuilder); 
+    //将满房的term查询添加到布尔查询中 
+    boolQueryBuilder.should(termQueryBuilder); 
+    //构建boosting查询，将match查询作为正向查询，布尔查询作为负向查询 
+    BoostingQueryBuilder boosting=QueryBuilders.boostingQuery(matchQueryBuilder, boolQueryBuilder); 
+    boosting.negativeBoost(0.2f);              //设置负向查询的权重系数 
+	searchSourceBuilder.query(boosting);       //设置查询为boosting查询 
+    searchRequest.source(searchSourceBuilder); //设置查询请求 
+   	printResult(searchRequest);                 //打印搜索结果 
+}
+```
+
+### Function Score
 
 支持用户自定义一个或多个查询语句及脚本，达到精细化控制评分的目的，以对搜索结果进行高度个性化的排序设置。适用于需进行复杂查询的自定义评分业务场景
+
+Function Score 支持的函数及其作用
+
+| 函数名称           | 函数作用                      |
+| ------------------ | ----------------------------- |
+| script_score       | 用户自定义脚本函数            |
+| weight             | 权重                          |
+| random_score       | 随机函数                      |
+| field_value_factor | 字段值因子                    |
+| 衰减函数           | gauss、linear、exp 等衰减函数 |
+
+需要注意的是，script_score 子句中的结果必须大于或者等于 0，不能为负数，否则，ES 将会报错
 
 ```json
 POST /products/_search
@@ -2826,7 +2891,22 @@ public void functionScoreSearch() {
 }
 ```
 
+如果在 function_score 的 functions 子句中有多个函数，则可以使用 score_mode 参数定义各个函数值之间的计算关系
 
+| 关系名称 | 说明               |
+| -------- | ------------------ |
+| multiply | 默认值，各个值相乘 |
+| sum      | 取各个值的加和值   |
+| avg      | 取各个值的平均值   |
+| first    | 取第一个函数的值   |
+| max      | 取各个值中最大值   |
+| min      | 取各个值中最小值   |
+
+### Script Score
+
+ES 提供的 Script Score 查询可以以编写脚本的方式对文档进行灵活打分，以实现自定义干预结果排名的目的
+
+Script Score 默认的脚本语言为 Painless，在 Painless 中可以访问文档字段，也可以使用 ES 内置的函数，甚至可以通过给脚本传递参数这种方式联通内部和外部数据
 
 ### rescore_query
 
