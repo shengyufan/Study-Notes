@@ -2908,6 +2908,183 @@ ES 提供的 Script Score 查询可以以编写脚本的方式对文档进行灵
 
 Script Score 默认的脚本语言为 Painless，在 Painless 中可以访问文档字段，也可以使用 ES 内置的函数，甚至可以通过给脚本传递参数这种方式联通内部和外部数据
 
+#### Painless
+
+Painless 语言是一种专门用于 ES 中的脚本语言，它使用了类似于 Groovy 的语法
+
+ES 使用了沙箱技术运行 Painless，且在 Painless 中没有任何网络连接的功能，因此它在安全性方面是有保障的
+
+Painless 是被编译成 JVM 字节码后运行的，它从语法上看是 Java 的子集，因此它是一种简单高效的脚本语言
+
+基本语法：
+
+-   Painless 中的变量在使用之前必须先进行声明，其声明方式和 Java 保持一致。如果变量在声明时没有指定值，则使用变量类型对应的默认值
+-   Painless 支持的原始类型包含 byte、short、char、int、long、float、double 和 boolean 等
+-   Painless 还支持使用 def 对动态类型的变量进行声明，它的作用是在声明时不指定类型而是在运行时判断数据类型
+-   在 Painless 中条件语句的使用和大多数语言是一样的，其支持使用 if 语句对条件进行判断，但是不支持 else if 或者 switch 语句
+-   Painless 支持 for 循环、while 循环和 do…while 循环
+-   Painless 代码中必须使用双引号将代码括起来，且代码必须整理成一行。如果为了代码可读性需要换行，则必须使用三引号将代码括起来
+
+如果字段属于基本数据类型，则可以通过 params._source.\$field_name 获取字段的值，也可以使用 doc['\$field'] 来引用字段，使用 doc['\$field'].value 引用字段的值
+
+```json
+// 方式一
+GET /hotel/_search 
+{ 
+    "query": { 
+        "script_score": { 
+            "query": { 
+                "match": { "title": "金都" } 
+            }, 
+            "script": { 
+                "source": """ 
+                    if(params._source.price>23){            //引用普通字段的值 
+                        return params._source.doc_weight;     //引用普通字段的值 
+                    } 
+                    return 0;
+                """
+            } 
+        } 
+    } 
+}
+
+// 方式二
+GET /hotel/_search 
+{ 
+    "query": { 
+        "script_score": { 
+            "query": { 
+            "match": { "title": "北京" } 
+            }, 
+            "script": { 
+                "source": """ 
+                    if(doc['price']!=null){ 
+                    return doc['price'].value;        //另一种引用字段值的方式 
+                    } 
+                    return 0; 
+                """
+            } 
+        } 
+    } 
+}
+```
+
+当字段类型为数组时，可以直接使用 for 循环遍历数组中的元素，同样可以使用 length 返回数组长度
+
+```json
+GET /hotel/_search 
+{ 
+    "query": { 
+        "script_score": {
+            "query": { 
+            "match": { "title": "金都" } 
+            }, 
+            "script": { 
+                "source": """ 
+                    for(def tag:params._source.tags){    //遍历数组字段 
+                        if("wifi"==tag){ 
+                            return 1; 
+                        } 
+                    } 
+                    return 0; 
+                """
+            } 
+        } 
+    } 
+}
+```
+
+当访问 object 类型字段中的值时，除了使用 `. ` 操作符引用该 object 类型的字段外，对其他字段的访问与访问索引的普通字段类似
+
+```json
+GET /hotel/_search 
+{ 
+    "query": { 
+        "script_score": { 
+            "query": { 
+            "match": { "title": "金都" } 
+            }, 
+            "script": { 
+                "source": """ 
+                    def comment=0; 
+                    if(params._source.comment_info!=null){ 
+                        if(params._source.comment_info.containsKey('favourable_comment')){ 
+                            //引用对象类型字段中的数据 
+                            comment+=params._source.comment_info['favourable_comment']; 
+                        } 
+                        if(params._source.comment_info.containsKey('negative_comment')){ 
+                            comment+=params._source.comment_info['negative_comment']; 
+                        } 
+                    } 
+                    return comment; 
+                """
+            } 
+        } 
+    } 
+}
+```
+
+另外还可以向 Painless 传参，在索引中搜索时，可以通过 params 关键字定义参数名称并设置其值，在代码中通过 params['$para'] 这种形式进行引用
+
+```json
+GET /hotel/_search 
+{ 
+    "query": { 
+        "script_score": { 
+            "query": { 
+                "match": { 
+                    "title": "金都" 
+                } 
+            }, 
+            "script": { 
+                "source": """ 
+                    return params['query_weight'];         //引用传递的参数值 
+                """,
+                "params": {                               //向脚本传参 
+                    "query_weight": 10 
+                } 
+            } 
+        } 
+    } 
+} 
+```
+
+Script Score 同样可以使用 ES 内置的函数进行打分干预
+
+-   saturation：饱和度函数
+-   sigmoid：归一化函数
+-   randomScore：随机函数
+-   cosineSimilarity：余弦相似度函数，因为余弦值可能有负数，但是脚本的返回值必须大于或等于 0，所以一般对其进行加 1 处理
+-   dotProduct：点乘函数，因为点乘值也可能是负数，所以在返回值时需要保证该值为正数或者 0
+-   l1norm：曼哈顿距离
+-   l2norm：欧式距离
+-   衰减函数
+
+Java Script Score 示例
+
+```java
+public void getScriptScoreQuery() { 
+    MatchQueryBuilder matchQueryBuilder = QueryBuilders.matchQuery("title", "金都"); 
+    //编写脚本代码 
+    String scoreScript = 
+         "int weight=10;\n" + 
+          "def random= randomScore(params.uuidHash);\n" + 
+          " return weight*random;"; 
+    Map paraMap = new HashMap(); 
+    paraMap.put("uuidHash", 234537);    //设置传递到脚本的参数 
+    //创建脚本对象 
+    Script script = new Script(Script.DEFAULT_SCRIPT_TYPE, "painless", scoreScript, paraMap); 
+    //创建ScriptScore查询builder 
+    ScriptScoreQueryBuilder scriptScoreQueryBuilder = QueryBuilders.scriptScoreQuery(matchQueryBuilder, script); 
+    SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder(); 
+    searchSourceBuilder.query(scriptScoreQueryBuilder); 
+    //创建搜索请求 
+    SearchRequest searchRequest = new SearchRequest("hotel"); 
+    searchRequest.source(searchSourceBuilder);    //设置查询请求 
+    printResult(searchRequest);                    //打印搜索结果 
+}
+```
+
 ### rescore_query
 
 二次评分是指重新计算查询所返回的结果文档中指定文档的得分
@@ -2918,6 +3095,8 @@ ElasticSearch 会截取查询返回的前 N 条结果，并使用预定义的二
 // 查询 content 字段中包含”实战“的文档，权重为0.7
 // 并对文档中 title 为 MySQL 的文档增加评分，权重为1.2
 // window_size 为 50，表示取分片结果的前 50 进行重新算
+// 在默认情况下，文档的最终得分等于原查询和 rescore 查询的分数之和
+// 可以分别设置 query_weight 和 rescore_query_weight，为原始查询权重和二次打分权重赋值
 GET /books/_search
 {
     "query": {
@@ -2937,6 +3116,29 @@ GET /books/_search
         },
         "window_size": 50
     }
+}
+```
+
+```java
+// Java 二次打分示例
+public void getRescoreQuery(){ 
+    //构建原始的range查询 
+    QueryBuilder rangeQueryBuilder = QueryBuilders.rangeQuery("price").gte("300"); 
+    SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder(); 
+    searchSourceBuilder.query(rangeQueryBuilder); //添加原始查询Builder 
+    //构建二次打分的查询 
+    MatchQueryBuilder matchQueryBuilder = QueryBuilders.matchQuery("title", "金都"); 
+    //构建二次打分Builder 
+    QueryRescorerBuilder queryRescorerBuilder = new QueryRescorerBuilder(matchQueryBuilder); 
+    queryRescorerBuilder.setQueryWeight(0.6f);        //设置原始打分权重 
+    queryRescorerBuilder.setRescoreQueryWeight(1.7f); //设置二次打分权重 
+    queryRescorerBuilder.windowSize(3); //设置每个分片参加二次打分文档的个数 
+    //添加二次打分Builder 
+    searchSourceBuilder.addRescorer(queryRescorerBuilder); 
+    //创建搜索请求 
+    SearchRequest searchRequest = new SearchRequest("hotel"); 
+    searchRequest.source(searchSourceBuilder);   //设置查询请求 
+   	printResult(searchRequest);                   //打印搜索结果 
 }
 ```
 
