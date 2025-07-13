@@ -3279,6 +3279,8 @@ PUT /address
 
 # 聚合
 
+当用户使用搜索引擎完成搜索后，在展示结果中需要进行进一步的筛选，而筛选的维度需要根据当前的搜索结果进行汇总，这就用到了聚合技术
+
 ## 指标聚合 Metric Aggregation
 
 ### 单值分析
@@ -3309,6 +3311,28 @@ POST /employees/_search
             }
         }
     }
+}
+```
+
+```java
+// Java 平均值聚合示例
+public void getAvgAggSearch() throws IOException{ 
+    //创建搜索请求 
+    SearchRequest searchRequest = new SearchRequest("hotel"); 
+    SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder(); 
+    String aggName="my_agg";                              //聚合的名称 
+    //定义avg聚合，指定字段为price 
+    AvgAggregationBuilder aggregationBuilder = AggregationBuilders.avg(aggName).field("price"); 
+    searchSourceBuilder.aggregation(aggregationBuilder); //添加聚合 
+    searchRequest.source(searchSourceBuilder);           //设置查询请求 
+    //执行查询 
+    SearchResponse searchResponse = client.search(searchRequest, RequestOptions.DEFAULT); 
+    //获取聚合结果 
+    Aggregations aggregations = searchResponse.getAggregations(); 
+    Avg avg = aggregations.get(aggName);   //获取avg聚合返回的对象 
+    String key=avg.getName();                              //获取聚合名称 
+    double avgValue = avg.getValue();                     //获取聚合值 
+    System.out.println("key="+key+",avgValue="+avgValue); //打印结果 
 }
 ```
 
@@ -3349,6 +3373,119 @@ POST /employees/_search
 }
 ```
 
+```java
+// Java stats 示例
+public void getStatsAggSearch () throws IOException{ 
+    //创建搜索请求 
+    SearchRequest searchRequest = new SearchRequest("hotel"); 
+    SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder(); 
+    String aggName="my_agg";                           //聚合的名称 
+    //定义stats聚合，指定字段为price 
+    StatsAggregationBuilder aggregationBuilder = AggregationBuilders.stats(aggName).field("price"); 
+    searchSourceBuilder.aggregation(aggregationBuilder); //添加聚合 
+    searchRequest.source(searchSourceBuilder);        //设置查询请求 
+    //执行查询 
+    SearchResponse searchResponse = client.search(searchRequest, RequestOptions.DEFAULT); 
+    //获取聚合结果 
+    Aggregations aggregations = searchResponse.getAggregations(); 
+    Stats stats = aggregations.get(aggName);  //获取stats聚合返回的对象 
+    String key=stats.getName();                       //获取聚合名称 
+    double sumVal =stats.getSum() ;                   //获取聚合加和值 
+    double avgVal =stats.getAvg() ;                  //获取聚合平均
+     long countVal =stats.getCount() ;                 //获取聚合文档数量值 
+    double maxVal =stats.getMax() ;                   //获取聚合最大值 
+    double minVal =stats.getMin() ;                   //获取聚合最小值 
+    System.out.println("key="+key);                  //打印聚合名称
+    //打印结果
+	System.out.println("sumVal=" + sumVal + ",avgVal=" + avgVal + ",countVal=" + countVal + ",maxVal=" + maxVal + ",minVal=" + minVal); 
+} 
+```
+
+### 空值处理
+
+在索引中的一部分文档很可能其某些字段是缺失的，ES 聚合查询提供的 value_count 聚合，该聚合用于统计字段非空值的个数
+
+如果判断的字段是数组类型，则 value_count 统计的是符合条件的所有文档中该字段数组中非空元素个数的总和，而不是数组的个数总和
+
+```json
+GET /hotel/_search 
+{ 
+    "size": 0,  
+    "aggs": { 
+        "my_agg": { 
+            "value_count": {                //统计price字段中非空值的个数 
+                "field": "price" 
+            } 
+        } 
+    } 
+}
+```
+
+```java
+// Java 非空值统计示例
+public void getValueCountAggSearch () throws IOException{ 
+    //创建搜索请求 
+    SearchRequest searchRequest = new SearchRequest("hotel"); 
+    SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder(); 
+   	String aggName="my_agg";       //聚合的名称 
+    //定义value_count聚合，指定字段为price 
+    ValueCountAggregationBuilder aggregationBuilder = AggregationBuilders.count(aggName).field("price"); 
+    aggregationBuilder.missing("200"); 
+    searchSourceBuilder.aggregation(aggregationBuilder); //添加聚合 
+    searchRequest.source(searchSourceBuilder);   //设置查询请求 
+    //执行查询 
+    SearchResponse searchResponse =client.search(searchRequest, RequestOptions.DEFAULT); 
+    //获取聚合结果 
+    Aggregations aggregations = searchResponse.getAggregations(); 
+    //获取value_count聚合返回的对象 
+    ValueCount valueCount = aggregations.get(aggName); 
+    String key=valueCount.getName();                 //获取聚合名称 
+    long count = valueCount.getValue();              //获取聚合值 
+    System.out.println("key="+key+",count="+count);  //打印结果 
+}
+```
+
+如果需要以空值字段的数据作为聚合指标对其进行聚合，可以在指标统计中通过 missing 参数指定填充值对空值进行填充
+
+```json
+GET /hotel/_search 
+{ 
+    "size": 0,  
+    "aggs": { 
+        "my_agg": { 
+            "sum": { 
+                "field": "price",
+                // 计算加和值时将 price 字段中的空值用 100 代替 
+                "missing":100
+            } 
+        } 
+    } 
+}
+```
+
+```java
+// Java 空值填充示例
+public void getSumAggSearch () throws IOException{ 
+    //创建搜索请求 
+    SearchRequest searchRequest = new SearchRequest("hotel"); 
+    SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder(); 
+    String aggName = "my_agg";                              //聚合的名称 
+    //定义sum聚合，指定字段为price 
+    SumAggregationBuilder aggregationBuilder = AggregationBuilders.sum(aggName).field("price"); 
+    aggregationBuilder.missing("100"); 
+    searchSourceBuilder.aggregation(aggregationBuilder); //添加聚合 
+    searchRequest.source(searchSourceBuilder);           //设置查询请求 
+    //执行查询 
+    SearchResponse searchResponse = client.search(searchRequest, RequestOptions.DEFAULT); 
+    //获取聚合结果 
+    Aggregations aggregations = searchResponse.getAggregations(); 
+    Sum sum = aggregations.get(aggName);                  //获取sum聚合返回的对象 
+    String key=sum.getName();                              //获取聚合名称 
+    double sumVal = sum.getValue();                       //获取聚合值 
+    System.out.println("key=" + key + ",count=" + sumVal);      //打印结果 
+}
+```
+
 ## 桶聚合 Bucket Aggregation
 
 按照一定规则，将文档分配到不同的桶中，从而达到分类的目的
@@ -3356,12 +3493,12 @@ POST /employees/_search
 terms 类型，需要字段支持 filedata
 
 -   ﻿﻿keyword，默认支持 fielddata
--   ﻿﻿text 需要在 Mapping 中开启 fielddata，会按照分词后的结果进行分桶（不建议对 text 进行分组）
+-   ﻿﻿text 需要在 mappings 中开启 fielddata，会按照分词后的结果进行分桶（不建议对 text 进行分组）
 
 数字类型
 
--   ﻿﻿Range / Data Range
--   ﻿﻿Histogram（直方图）/ Date Histogram
+-   ﻿﻿range / data range
+-   ﻿﻿histogram（直方图）/ date histogram
 
 ```json
 GET /employees/_search
@@ -3377,6 +3514,31 @@ GET /employees/_search
             }
         }
     }
+}
+```
+
+```java
+// Java 单维度桶聚合示例
+public void getBucketDocCountAggSearch() throws IOException { 
+    //创建搜索请求 
+    SearchRequest searchRequest = new SearchRequest("hotel"); 
+    SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder(); 
+    String termsAggName = "my_terms";                //指定聚合的名称 
+    //定义terms聚合，指定字段为城市 
+    TermsAggregationBuilder termsAggregationBuilder = AggregationBuilders.terms(termsAggName).field("full_room"); 
+    searchSourceBuilder.aggregation(termsAggregationBuilder); //添加聚合 
+    searchRequest.source(searchSourceBuilder);       //设置查询请求 
+    //执行查询 
+    SearchResponse searchResponse = client.search(searchRequest, RequestOptions.DEFAULT); 
+    //获取聚合结果 
+    Aggregations aggregations = searchResponse.getAggregations(); 
+    Terms terms = aggregations.get(termsAggName);     //获取聚合返回的对象 
+    
+    for (Terms.Bucket bucket : terms.getBuckets()) { 
+        String bucketKey = bucket.getKeyAsString();   //获取桶名称 
+        long docCount = bucket.getDocCount();         //获取文档个数 
+        System.out.println("termsKey=" + bucketKey + ",docCount=" + docCount); 
+    } 
 }
 ```
 
@@ -3407,6 +3569,33 @@ POST /employees/_search
 }
 ```
 
+```java
+// Java range 桶聚合示例
+public void getRangeDocCountAggSearch() throws IOException { 
+    //创建搜索请求 
+    SearchRequest searchRequest = new SearchRequest("hotel"); 
+    SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder(); 
+    String rangeAggName = "my_range";          //聚合的名称 
+    //定义ranges聚合，指定字段为price 
+    RangeAggregationBuilder rangeAgg = AggregationBuilders.range(rangeAggName).field("price"); 
+    rangeAgg.addRange(new RangeAggregator.Range(null,null,200d)); 
+    rangeAgg.addRange(new RangeAggregator.Range(null,200d,500d)); 
+    rangeAgg.addRange(new RangeAggregator.Range(null,500d,null)); 
+    searchSourceBuilder.aggregation(rangeAgg);  //添加ranges聚合 
+    searchRequest.source(searchSourceBuilder);  //设置查询请求 
+    //执行查询 
+    SearchResponse searchResponse = client.search(searchRequest, RequestOptions.DEFAULT); 
+    //获取聚合结果 
+    Aggregations aggregations = searchResponse.getAggregations(); 
+    Range range = aggregations.get(rangeAggName);//获取range聚合返回的对象 
+    for (Range.Bucket bucket : range.getBuckets()) { 
+        String bucketKey = bucket.getKeyAsString(); //获取桶名称 
+        long docCount = bucket.getDocCount();       //获取聚合文档个数 
+        System.out.println("bucketKey=" + bucketKey + ",docCount=" + docCount); 
+    } 
+}
+```
+
 支持嵌套，即可以在桶里再做分桶
 
 ```json
@@ -3427,6 +3616,124 @@ POST /employees/_search
             }
         }
     }
+}
+```
+
+```java
+// Java 嵌套聚合示例
+public void getBucketAggSearch () throws IOException{ 
+    //创建搜索请求 
+    SearchRequest searchRequest = new SearchRequest("hotel"); 
+    SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder(); 
+    String termsAggName = "my_terms";      //聚合的名称 
+    //定义terms聚合，指定字段为城市 
+    TermsAggregationBuilder termsAggregationBuilder = AggregationBuilders.terms(termsAggName).field("city"); 
+    String sumAggName="my_sum";          //sum聚合的名称 
+    //定义sum聚合，指定字段为价格 
+    SumAggregationBuilder sumAggregationBuilder = AggregationBuilders.sum(sumAggName).field("price"); 
+    //定义聚合的父子关系 
+    termsAggregationBuilder.subAggregation(sumAggregationBuilder); 
+    searchSourceBuilder.aggregation(termsAggregationBuilder); //添加聚合 
+    searchRequest.source(searchSourceBuilder);    //设置查询请求 
+    //执行查询 
+    SearchResponse searchResponse = client.search(searchRequest, RequestOptions.DEFAULT); 
+    //获取聚合结果 
+    Aggregations aggregations = searchResponse.getAggregations(); 
+    Terms terms = aggregations.get(termsAggName); //获取聚合返回的对象
+    
+    for(Terms.Bucket bucket:terms.getBuckets()){ 
+        String termsKey=bucket.getKey().toString(); 
+        System.out.println("termsKey=" + termsKey); 
+        Sum sum =bucket.getAggregations().get(sumAggName); 
+       	String key=sum.getName();                         //获取聚合名称 
+        double sumVal = sum.getValue();                  //获取聚合值 
+        System.out.println("key=" + key + ",count=" + sumVal); //打印结果 
+    } 
+}
+```
+
+### 地理位置聚合
+
+用户可以使用 geo_distance 聚合进行地理距离聚合，通过 field 参数来设置距离计算的字段，可以在 origin 子句中设定距离的原点，通过 unit 参数来设置距离的单位，可以选择米和千米
+
+```json
+GET /hotel/_sear
+{ 
+    "size": 0, 
+    "aggs": { 
+        "my_agg": { 
+            "geo_distance": { 
+                "field": "location", 
+                "origin": {                //指定聚合的中心点经纬度 
+                    "lat":  39.915143, 
+                    "lon": 116.4039 
+                }, 
+                "unit": "km",              //指定聚合时的距离计量单位 
+                "ranges": [                //指定每一个聚合桶的距离范围 
+                    { 
+                        "to": 3 
+                    }, 
+                    { 
+                        "from": 3, 
+                        "to":10 
+                    }, 
+                    { 
+                        "from": 10 
+                    } 
+                ] 
+            },
+            "aggs": {                      //指定聚合指标 
+                "my_min": {                 //聚合指标名称 
+                    "min": {                  //计算每个桶内price字段的最小值 
+                        "field": "price", 
+                        "missing": 100 
+                    } 
+                } 
+            } 
+        } 
+    } 
+}
+```
+
+```java
+// Java 地理距离分组并计算最低价格
+public void geGeoDistanceAggSearch() throws IOException { 
+    //创建搜索请求 
+    SearchRequest searchRequest = new SearchRequest("hotel"); 
+    SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder(); 
+    String geoDistanceAggName = "location";  //聚合的名称 
+    //定义GeoDistance聚合 
+    GeoDistanceAggregationBuilder geoDistanceAgg=AggregationBuilders.geoDistance(geoDistanceAggName,new GeoPoint(39.915143,116.4039)); 
+    geoDistanceAgg.unit(DistanceUnit.KILOMETERS); 
+    geoDistanceAgg.field("location"); 
+    //指定分桶范围规则 
+    geoDistanceAgg.addRange(new GeoDistanceAggregationBuilder.Range(null,0d,3d)); 
+    geoDistanceAgg.addRange(new GeoDistanceAggregationBuilder.Range(null,3d,110d)); 
+    geoDistanceAgg.addRange(new GeoDistanceAggregationBuilder.Range(null,110d,null)); 
+    String minAggName = "my_min";                     //min聚合的名称 
+    //定义sum聚合，指定字段为价格 
+    MinAggregationBuilder minAgg = AggregationBuilders.min(minAggName).field("price"); 
+    minAgg.missing(100);                              //指定默认值 
+    //定义聚合的父子关系 
+    geoDistanceAgg.subAggregation(minAgg); 
+    searchSourceBuilder.aggregation(geoDistanceAgg);  //添加聚合 
+    searchRequest.source(searchSourceBuilder);        //设置查询请求 
+    //执行查询 
+    SearchResponse searchResponse = client.search(searchRequest, RequestOptions.DEFAULT); 
+    //获取聚合结果 
+    Aggregations aggregations = searchResponse.getAggregations(); 
+    //获取GeoDistance聚合返回的对象 
+    ParsedGeoDistance range = aggregations.get(geoDistanceAggName); 
+
+    for (Range.Bucket  bucket : range.getBuckets()) { 
+        //获取bucket名称的字符串形式 
+        String termsKey = bucket.getKeyAsString(); 
+        System.out.println("termsKey=" + termsKey); 
+        ParsedMin min = bucket.getAggregations().get(minAggName); 
+        String key = min.getName();                   //获取聚合名称 
+        double minVal = min.getValue();               //获取聚合值 
+        System.out.println("key=" + key + ",min=" + minVal);//打印结果 
+    } 
 }
 ```
 
@@ -3468,6 +3775,334 @@ POST /employees/_search
                 "buckets_path": "jobs>avg_salary"
             }
         }
+    }
+}
+```
+
+## 聚合排序
+
+聚合后结果可以使用 ES 提供的 sort 子句进行自定义排序，有多种排序方式供用户选择
+
+1.   按照聚合后的文档计数的大小进行排序
+2.   按照聚合后的某个指标进行排序
+3.   按照每个组的名称进行排序
+
+### 文档计数排序
+
+使用 _count 来引用每组聚合的文档计数进行排序
+
+```json
+GET /hotel/_search
+{
+    "size": 0,
+    "aggs": {
+        "group_city": {
+            "terms": {
+                "field": "city",
+                "order": {                     //按照文档计数进行升序排列
+                    "_count": "asc"
+                }
+            },
+            "aggs": {
+                "my_avg": {
+                    "avg": {                    //使用价格平均值作为聚合指标
+                        "field": "price",
+                        "missing": 200
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+```java
+public void getAggDocCountOrderSearch() throws IOException { 
+    //创建搜索请求 
+    SearchRequest searchRequest = new SearchRequest("hotel"); 
+    SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder(); 
+    String termsAggName = "my_terms";                  //聚合的名称 
+    //定义terms聚合，指定字段为城市 
+    TermsAggregationBuilder termsAggregationBuilder = AggregationBuilders.terms(termsAggName).field("city"); 
+    BucketOrder bucketOrder=BucketOrder.count(true); 
+    termsAggregationBuilder.order(bucketOrder); 
+    String avgAggName = "my_avg";                      //avg聚合的名称 
+    //定义sum聚合，指定字段为价格 
+    SumAggregationBuilder avgAgg = AggregationBuilders.sum(avgAggName).field("price"); 
+    //定义聚合的父子关系 
+    termsAggregationBuilder.subAggregation(avgAgg); 
+    searchSourceBuilder.aggregation(termsAggregationBuilder); //添加聚合 
+    searchRequest.source(searchSourceBuilder);         //设置查询请求 
+    SearchResponse searchResponse = client.search(searchRequest,  
+RequestOptions.DEFAULT);                               //执行搜索 
+    SearchHits searchHits = searchResponse.getHits();  //获取搜索结果集 
+    //获取聚合结果 
+    Aggregations aggregations = = searchResponse.getAggregations(); 
+    Terms terms = aggregations.get(termsAggName);      //获取聚合返回的对象
+    
+    for (Terms.Bucket bucket : terms.getBuckets()) { 
+        String bucketKey = bucket.getKey().toString(); 
+        System.out.println("termsKey=" + bucketKey); 
+        Sum sum = bucket.getAggregations().get(avgAggName); 
+        String key = sum.getName();                    //获取聚合名称 
+        double sumVal = sum.getValue();                //获取聚合值 
+        System.out.println("key=" + key + ",count=" + sumVal);  //打印结果 
+    } 
+}
+```
+
+### 聚合指标排序
+
+使用指标的聚合名称来引用每组聚合的文档计数
+
+```json
+GET /hotel/_search
+{
+    "size": 0,
+    "aggs": {
+        "group_city": {
+            "terms": {
+                "field": "city",
+                "order": {                   //按照聚合指标进行升序排列
+                    "my_avg": "asc"
+                }
+            },
+            "aggs": {
+                "my_avg": {                  //定义聚合指标
+                    "avg": {
+                        "field": "price",
+                        "missing": 200
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+```java
+public void getAggMetricsOrderSearch() throws IOException { 
+    //创建搜索请求 
+    SearchRequest searchRequest = new SearchRequest("hotel"); 
+    SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder(); 
+    String termsAggName = "my_terms";   //聚合的名称 
+    //定义terms聚合，指定字段为城市 
+    String avgAggName = "my_avg";              //avg聚合的名称 
+    TermsAggregationBuilder termsAggregationBuilder = AggregationBuilders.terms(termsAggName).field("city"); 
+    BucketOrder bucketOrder=BucketOrder.aggregation(avgAggName,true); 
+    termsAggregationBuilder.order(bucketOrder); 
+    //定义sum聚合，指定字段为价格 
+    AvgAggregationBuilder avgAgg = AggregationBuilders.avg(avgAggName).field("price"); 
+    //定义聚合的父子关系 
+    termsAggregationBuilder.subAggregation(avgAgg); 
+    searchSourceBuilder.aggregation(termsAggregationBuilder); //添加聚合 
+    searchRequest.source(searchSourceBuilder);   //设置查询请求 
+    SearchResponse searchResponse = client.search(searchRequest, RequestOptions.DEFAULT);                          //执行搜索 
+    //获取聚合结果 
+    Aggregations aggregations = searchResponse.getAggregations(); 
+    Terms terms = aggregations.get(termsAggName); //获取聚合返回的对象 
+    for (Terms.Bucket bucket : terms.getBuckets()) { 
+        String bucketKey = bucket.getKey().toString(); 
+        System.out.println("termsKey=" + bucketKey); 
+        Avg avg = bucket.getAggregations().get(avgAggName); 
+        String key = avg.getName();                //获取聚合名称 
+        double avgVal = avg.getValue();            //获取聚合值 
+        System.out.println("key=" + key + ",avgVal=" + avgVal);//打印结果 
+    } 
+}
+```
+
+### 分组 key 排序
+
+使用 _key 来引用分组名称进行排序
+
+```json
+GET /hotel/_search
+{
+    "size": 0,
+    "aggs": {
+        "group_city": {
+            "terms": {
+                "field": "city",
+                "order": {
+                    // 按照分组组名的自然顺序升序排列
+                    "_key": "asc"
+                }
+            },
+            "aggs": {
+                "my_avg": {
+                    "avg": {
+                        "field": "price",
+                        "missing": 200
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+```java
+public void getAggKeyOrderSearch() throws IOException { 
+    //创建搜索请求 
+    SearchRequest searchRequest = new SearchRequest("hotel"); 
+    SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder(); 
+    String termsAggName = "my_terms";       //聚合的名称 
+    //定义terms聚合，指定字段为城市 
+    String avgAggName = "my_avg";           //avg聚合的名称 
+    TermsAggregationBuilder termsAggregationBuilder = AggregationBuilders.terms(termsAggName).field("city"); 
+    BucketOrder bucketOrder=BucketOrder.key(true); 
+    termsAggregationBuilder.order(bucketOrder); 
+    //定义sum聚合，指定字段为价格 
+    SumAggregationBuilder avgAgg = AggregationBuilders.sum(avgAggName).field("price"); 
+    //定义聚合的父子关系 
+    termsAggregationBuilder.subAggregation(avgAgg); 
+    searchSourceBuilder.aggregation(termsAggregationBuilder); //添加聚合 
+    searchRequest.source(searchSourceBuilder);         //设置查询请求 
+    SearchResponse searchResponse = client.search(searchRequest, RequestOptions.DEFAULT);                               //执行搜索 
+    SearchHits searchHits = searchResponse.getHits();  //获取搜索结果集 
+    //获取聚合结果 
+    Aggregations aggregations = searchResponse.getAggregations(); 
+    Terms terms = aggregations.get(termsAggName); //获取sum聚合返回的对象 
+    
+    for (Terms.Bucket bucket : terms.getBuckets()) { 
+        String bucketKey = bucket.getKey().toString(); 
+        System.out.println("termsKey=" + bucketKey); 
+        Sum sum = bucket.getAggregations().get(avgAggName); 
+        String key = sum.getName();         //获取聚合名称 
+        double sumVal = sum.getValue();     //获取聚合值 
+        System.out.println("key=" + key + ",count=" + sumVal);//打印结果 
+    } 
+}
+```
+
+## 聚合分页
+
+ES 支持同时返回查询结果和聚合结果，查询结果和聚合结果各自封装在不同的子句中。聚合分页实现聚合的结果按照每组选出前 N 个文档的方式进行呈现
+
+### Top hits 聚合
+
+Top hits 聚合指的是聚合时在每个分组内部按照某个规则选出前 N 个文档进行展示
+
+```json
+GET /hotel/_search
+{
+    "size": 0,
+    "query": {
+        "match": {
+            "title": "金都"
+        }
+    },
+    "aggs": {
+        "group_city": {
+            "terms": {
+                "field": "city"
+            },
+            "aggs": {
+                "my_avg": {
+                    "top_hits": {
+                        //指定返回每个桶的前3个文档
+                        "size": 3
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+```java
+public void getAggTopHitsSearch() throws IOException { 
+    //创建搜索请求 
+    SearchRequest searchRequest = new SearchRequest("hotel"); 
+    SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder(); 
+    String termsAggName = "my_terms";             //聚合的名称 
+    TermsAggregationBuilder termsAggregationBuilder = AggregationBuilders.terms(termsAggName).field("city"); 
+    BucketOrder bucketOrder=BucketOrder.key(true); 
+    termsAggregationBuilder.order(bucketOrder); 
+    String topHitsAggName = "my_top";            //聚合的名称 
+    TopHitsAggregationBuilder topHitsAgg=AggregationBuilders.topHits(topHitsAggName); 
+    topHitsAgg.size(3); 
+    //定义聚合的父子关系 
+    termsAggregationBuilder.subAggregation(topHitsAgg); 
+    //添加聚合 
+    searchSourceBuilder.aggregation(termsAggregationBuilder); 
+    searchSourceBuilder.query(QueryBuilders.matchQuery("title","金都")); 
+    searchRequest.source(searchSourceBuilder);          //设置查询请求 
+    //执行搜索 
+    SearchResponse searchResponse = client.search(searchRequest, RequestOptions.DEFAULT);
+    //获取聚合结果
+    Aggregations aggregations = searchResponse.getAggregations(); 
+    //获取sum聚合返回的对象 
+    Terms terms = aggregations.get(termsAggName);
+    
+    for (Terms.Bucket bucket : terms.getBuckets()) { 
+        String bucketKey = bucket.getKey().toString(); 
+        System.out.println("termsKey=" + bucketKey); 
+        TopHits topHits = bucket.getAggregations().get(topHitsAggName); 
+        SearchHit[] searchHits=topHits.getHits().getHits(); 
+        for(SearchHit searchHit:searchHits){ 
+            System.out.println(searchHit.getSourceAsString()); 
+        } 
+    } 
+}
+```
+
+Top hits 不能完成自动分页功能。如果在聚合中使用 Top hits 聚合并期望对数据进行分页，则要求聚合的结果一定不能太多，因为需要由客户端自行进行分页，此时对分页内存的存储能力是一个挑战
+
+### Collapse 聚合
+
+当在索引中有大量数据命中时，Top hits 聚合存在效率问题，并且需要用户自行排序。因此 ES 推出了 Collapse 聚合，即用户可以在 collapse 子句中指定分组字段，匹配 query 的结果按照该字段进行分组，并在每个分组中按照得分高低展示组内的文档
+
+当用户在 query 子句外指定 from 和 size 时，将作用在 Collapse 聚合之后，即此时的分页是作用在分组之后的
+
+```json
+GET /hotel/_search
+{
+    "from": 0,                      //指定分页的起始位置
+    "size": 5,                      //指定每页返回的数量
+    "query": {                      //指定查询的 query 逻辑
+        "match": {
+            "title": "金都"
+        }
+    },
+    "collapse": {                   //指定按照城市进行 Collapse 聚合
+        "field": "city"
+    }
+}
+```
+
+```java
+public void getCollapseAggSearch() throws IOException {
+    // 按照 city 字段进行 Collapse 去重（类似分组）
+    CollapseBuilder collapseBuilder = new CollapseBuilder("city");
+
+    // 构建搜索请求
+    SearchRequest searchRequest = new SearchRequest("hotel"); // 指定索引名
+    SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder();
+
+    // 构建 match 查询，匹配 title 字段中包含“金都”的文档
+    searchSourceBuilder.query(QueryBuilders.matchQuery("title", "金都"));
+
+    // 设置 collapse 聚合
+    searchSourceBuilder.collapse(collapseBuilder);
+
+    // 设置 source 到请求体中
+    searchRequest.source(searchSourceBuilder);
+
+    // 执行查询
+    SearchResponse searchResponse = client.search(searchRequest, RequestOptions.DEFAULT);
+
+    // 获取搜索结果集
+    SearchHits searchHits = searchResponse.getHits();
+
+    // 遍历搜索结果集
+    for (SearchHit searchHit : searchHits) {
+        String index = searchHit.getIndex();               // 获取索引名
+        String id = searchHit.getId();                     // 获取文档 ID
+        Float score = searchHit.getScore();                // 获取得分
+        String source = searchHit.getSourceAsString();     // 获取原始 JSON 文档内容
+        System.out.println("index=" + index + ", id=" + id + ", score=" + score + ", source=" + source);
     }
 }
 ```
