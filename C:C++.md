@@ -290,4 +290,110 @@ free(a);
 
 不能用运算符对字符串做运算
 
+如果使用指针定义字符串，则不能在原地址上进行修改，即只读。但可以通过数组定义进行修改
+
+```c
+char *s = "Hello!";
+s[0] = 'h'; // 操作报错
+char t[] = "Hello!";
+t[0] = 'h'; // 操作成功
+```
+
+如果多个字符串相同，则会指向同一个地址
+
+```c
+// a 和 b 指向同一地址
+char *a = "hello";
+char *b = "hello";
+```
+
+### 空字符串
+
+```c
+// 空字符串
+char buff[100] = "";
+
+//数组长度只有 1
+char buff[] = "";
+```
+
+### 相关函数
+
+`putchar` 与 `getchar`：单字符输出和输入
+
+```c
+#include <stdio.h>
+
+int main() {
+    char c;
+
+    printf("请输入一个字符: ");
+    c = getchar();    // 从键盘读取一个字符
+
+    printf("你输入的是: ");
+    putchar(c);       // 输出这个字符
+    printf("\n");
+
+    return 0;
+}
+```
+
+`strlen`：返回字符串的长度
+
+`strcmp`：比较两个字符串，返回值为两个字符串的差值，即返回 0，两者相同；返回正值，前者大；返回负值，后者大
+
+`strcpy`：将一个字符串拷贝到另一个字符串中，注意参数表中目的字符串在前，源字符串在后
+
+`strchr/strstr/strcasestr`：在字符串中寻找单个字符/字符串/忽略大小写的字符串
+
+## 枚举
+
+用户定义的数据类型，使用关键字 `enum` 声明枚举
+
+```c
+enum colors {red, yellow, green};
+```
+
+枚举只是 int，如果未声明，则从 0 开始依次递增。枚举也可以自定义赋值
+
+## 结构
+
+结构声明了一种新的数据类型
+
+声明结构的形式
+
+```c
+// 1
+struct point {
+    int x;
+    int y;
+};
+struct point p1, p2;
+
+// 2
+struct {
+    int x;
+    int y;
+} p1, p2;
+
+// 3
+struct point {
+    int x;
+    int y;
+} p1, p2;
+```
+
+第一和第三种形式都声明了结构 point，但第二种形式没有声明 point，只是定义了两个变量
+
+对于整个结构，可以做赋值、取址，也可以传递给函数参数
+
+和数组不同，结构变量的名字并不是结构变量的地址，必须使用 `&` 运算符
+
+```c
+struct date today;
+struct date *pDate = &today;
+```
+
+
+
 # C++
